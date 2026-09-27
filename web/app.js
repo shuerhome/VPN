@@ -532,7 +532,14 @@
     if (p.loading) { box.innerHTML = head + '<p class="hint">正在用 ' + (p.count || 15) + ' 种身份分别拉取订阅，大约 10～30 秒…</p>'; return; }
     if (p.error) { box.innerHTML = head + '<p class="hint warn">' + esc(p.error) + '</p>'; return; }
     const ok = p.results.filter(r => !r.error);
-    const best = ok.filter(r => !(r.notices || []).some(n => /客户端|官方/.test(n))).sort((a, b) => b.nodes - a.nodes)[0];
+    const nudge = r => (r.notices || []).some(n => /客户端|官方|请尽快/.test(n));
+    const best = ok.filter(r => !nudge(r)).sort((a, b) => b.nodes - a.nodes)[0];
+    const most = ok.slice().sort((a, b) => b.nodes - a.nodes)[0];
+    let verdict = '';
+    if (!ok.length) verdict = '<div class="probe-verdict bad">所有身份都拉取失败，检查订阅链接是否过期。</div>';
+    else if (best) verdict = '<div class="probe-verdict ok">推荐 <b class="mono">' + esc(best.ua) + '</b>：' + best.nodes + ' 个节点，没有「请使用官方客户端」提示。</div>';
+    else verdict = '<div class="probe-verdict warn">所有身份拿到的都带「请使用官方客户端」提示，最多 ' + most.nodes + ' 个节点（' + esc(most.ua) + '）。' +
+      '说明这个订阅链接给不了官方客户端里的那套节点：官方客户端走的是自己的接口。可以继续用节点最多的身份，或者从官方客户端里复制配置，用「粘贴节点配置」导入。</div>';
     const rows = p.results.map(r => {
       const isCur = (r.ua === (p.current || 'clash.meta'));
       const types = Object.entries(r.types || {}).map(([k, v]) => k + ' ' + v).join('、');
@@ -544,7 +551,7 @@
             '<td>' + (isCur ? '' : '<button class="btn small" type="button" data-act="probe-use" data-ua="' + esc(r.ua) + '">用这个</button>') + '</td>') +
       '</tr>';
     }).join('');
-    box.innerHTML = head + '<div class="table-wrap"><table><thead><tr><th>客户端身份</th><th>节点数</th><th>协议 · 节点示例</th><th>提示</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    box.innerHTML = head + verdict + '<div class="table-wrap"><table><thead><tr><th>客户端身份</th><th>节点数</th><th>协议 · 节点示例</th><th>提示</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
       '<p class="hint">如果所有身份都拿不到你在官方客户端里看到的节点，说明官方客户端走的是别的接口：在官方客户端里导出或查看配置文件，用「粘贴节点配置」导入。</p>';
   }
 

@@ -414,3 +414,7 @@ td input[type="date"] { border: 1px solid var(--line); border-radius: 5px; paddi
 .probe td:nth-child(3) { white-space: normal; min-width: 240px; max-width: 520px; }
 .probe td:nth-child(3) .sub { white-space: normal; }
 .probe td:nth-child(4) { white-space: normal; max-width: 260px; }
+.probe-verdict { border-radius: 6px; padding: 10px 12px; font-size: 13px; line-height: 1.6; }
+.probe-verdict.ok { background: var(--ok-soft); color: var(--ok); }
+.probe-verdict.warn { background: var(--warn-soft); color: var(--warn); }
+.probe-verdict.bad { background: var(--bad-soft); color: var(--bad); }

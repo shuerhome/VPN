@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>落地链路台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 登录 -->
+<div class="login" id="login" hidden>
+  <form class="panel" id="loginForm">
+    <h1><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>落地链路台</h1>
+    <div class="field"><label for="loginPass">面板密码</label><input id="loginPass" type="password" autocomplete="current-password" required></div>
+    <button class="btn primary" type="submit">登录</button>
+    <p class="err" id="loginErr" role="alert"></p>
+  </form>
+</div>
+
+<div class="app" id="app" hidden>
+  <aside class="rail">
+    <div class="brand">
+      <b><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>落地链路台</b>
+      <small>Residential exit chains</small>
+    </div>
+    <nav class="nav" aria-label="主导航">
+      <a href="#chains" data-view="chains">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="4" cy="10" r="2.2"/><circle cx="10" cy="10" r="2.2"/><circle cx="16" cy="10" r="2.2"/><path d="M6.2 10h1.6M12.2 10h1.6"/></svg>
+        链路 <span class="count" id="navChains"></span>
+      </a>
+      <a href="#ips" data-view="ips">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3.5 9.2 10 4l6.5 5.2V16a.8.8 0 0 1-.8.8H4.3a.8.8 0 0 1-.8-.8Z"/><path d="M8 16.8v-4.3h4v4.3"/></svg>
+        住宅IP <span class="count" id="navIps"></span>
+      </a>
+      <a href="#airports" data-view="airports">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.8 9.6 17 3.5l-4.6 13.2-3-5.3Z"/><path d="m9.4 11.4 7.6-7.9"/></svg>
+        机场订阅 <span class="count" id="navNodes"></span>
+      </a>
+    </nav>
+    <div class="rail-foot">
+      <span id="relayStatus"></span>
+      <span id="busyLine" hidden><span class="busy-dot" aria-hidden="true"></span>后台检测中</span>
+      <button class="btn small" type="button" data-act="logout">退出登录</button>
+    </div>
+  </aside>
+
+  <main>
+    <section class="view" id="view-chains" aria-labelledby="h-chains">
+      <div class="view-head">
+        <div>
+          <h1 id="h-chains">链路</h1>
+          <p>一台 iPhone 对应一条链路，绑定一个固定的静态住宅IP。建好后扫右侧二维码导入手机。</p>
+        </div>
+        <div class="actions">
+          <button class="btn" type="button" data-act="check-all">全部检测</button>
+          <button class="btn primary" type="button" data-act="new-chain">新建链路</button>
+        </div>
+      </div>
+      <div class="panel summary" id="summary"></div>
+      <div class="chains-layout">
+        <ul class="panel chain-list" id="chainList" role="listbox" aria-label="链路列表"></ul>
+        <div class="panel detail" id="detail"></div>
+      </div>
+    </section>
+
+    <section class="view" id="view-ips" aria-labelledby="h-ips" hidden>
+      <div class="view-head">
+        <div>
+          <h1 id="h-ips">住宅IP</h1>
+          <p>把供应商发来的内容整段粘贴进来，自动拆出 IP、端口、账号、密码。加入后服务器会立刻检测出口IP、地区和类型。</p>
+        </div>
+      </div>
+      <div class="panel ingest">
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <h2>智能粘贴</h2>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="hint">未注明协议时按</span>
+              <div class="seg" role="group" aria-label="默认协议">
+                <button type="button" data-proto="socks5" aria-pressed="true">SOCKS5</button>
+                <button type="button" data-proto="http" aria-pressed="false">HTTP</button>
+              </div>
+            </div>
+          </div>
+          <textarea id="paste" spellcheck="false" aria-label="粘贴住宅IP" placeholder="例如：&#10;203.0.113.24:1080:user:pass&#10;user:pass@203.0.113.24:1080&#10;socks5://user:pass@203.0.113.24:1080#洛杉矶&#10;&#10;IP地址：203.0.113.24&#10;端口：1080&#10;账号：user&#10;密码：pass"></textarea>
+          <p class="hint">支持 <span class="mono">ip:端口:账号:密码</span>、<span class="mono">账号:密码@ip:端口</span>、<span class="mono">socks5://</span> 链接、小火箭 Base64 分享链接、空格或竖线分隔，以及「IP地址：… 端口：…」这类带标签的文本。</p>
+        </div>
+        <div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+            <h2>识别结果</h2>
+            <span class="hint" id="parseCount"></span>
+          </div>
+          <ul class="parsed" id="parsed"></ul>
+          <div class="fields">
+            <div class="field wide">
+              <label>协议</label>
+              <div class="seg" role="group" aria-label="协议" id="fProto">
+                <button type="button" data-v="socks5" aria-pressed="true">SOCKS5</button>
+                <button type="button" data-v="http" aria-pressed="false">HTTP</button>
+                <button type="button" data-v="https" aria-pressed="false">HTTPS</button>
+              </div>
+            </div>
+            <div class="field"><label for="fHost">IP / 域名</label><input id="fHost" class="mono" autocomplete="off" spellcheck="false" placeholder="也可以直接把整串贴在这里"></div>
+            <div class="field"><label for="fPort">端口</label><input id="fPort" class="mono" inputmode="numeric" autocomplete="off"></div>
+            <div class="field"><label for="fUser">账户</label><input id="fUser" class="mono" autocomplete="off" spellcheck="false"></div>
+            <div class="field"><label for="fPass">密码</label><input id="fPass" class="mono" autocomplete="off" spellcheck="false"></div>
+            <div class="field"><label for="fRemark">备注</label><input id="fRemark" autocomplete="off" placeholder="如：供应商 X · 洛杉矶"></div>
+            <div class="field"><label for="fExpire">到期日</label><input id="fExpire" type="date"></div>
+          </div>
+          <div class="ingest-foot">
+            <span class="hint">一个 IP 只给一台设备用。</span>
+            <button class="btn primary" type="button" id="addIps">加入IP库</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>地址</th><th>出口IP</th><th>地区 · 运营商</th><th>类型</th><th>到期</th><th>绑定设备</th><th></th></tr></thead>
+            <tbody id="ipRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-airports" aria-labelledby="h-air" hidden>
+      <div class="view-head">
+        <div>
+          <h1 id="h-air">机场订阅</h1>
+          <p>机场节点做 Stash 链路的前置。每 30 分钟自动同步一次流量、到期和节点。</p>
+        </div>
+        <div class="actions"><button class="btn" type="button" data-act="test-nodes">节点测速</button></div>
+      </div>
+      <div class="air-grid" id="airGrid"></div>
+      <div class="chips" id="regionChips" role="group" aria-label="按地区筛选"></div>
+      <div class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>节点</th><th>机场</th><th>协议</th><th>延迟</th><th>作为前置</th></tr></thead>
+            <tbody id="nodeRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="sheet-bg" id="sheetBg" hidden>
+  <div class="panel sheet" role="dialog" aria-modal="true" aria-labelledby="h-sheet">
+    <form id="chainForm">
+      <h2 id="h-sheet">新建链路</h2>
+      <div class="fields">
+        <div class="field"><label for="nDevice">设备</label><input id="nDevice" required maxlength="40"></div>
+        <div class="field"><label for="nPlatform">平台</label>
+          <select id="nPlatform"><option>TikTok</option><option>Instagram</option><option>Facebook</option><option>YouTube</option><option>X</option><option>其他</option></select>
+        </div>
+        <div class="field wide"><label for="nHandle">账号（多个用空格分开）</label><input id="nHandle" placeholder="@your.account" maxlength="200"></div>
+        <div class="field wide" id="nIpField"><label for="nIp">落地住宅IP</label><select id="nIp"></select>
+          <span class="hint">已绑定到其他设备的 IP 不能再选。</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>前置节点（Stash 链路用）</label>
+        <div class="opt-list">
+          <label class="opt"><input type="radio" name="front" value="auto" checked><span><b>自动</b><span class="d" style="display:block">取与住宅IP同国家的机场节点组成前置组，挂了自动切下一个。</span></span></label>
+          <label class="opt"><input type="radio" name="front" value="fixed"><span><b>固定节点</b><select id="nNode" style="display:block;margin-top:4px;max-width:100%"></select></span></label>
+        </div>
+      </div>
+      <div class="field">
+        <label>出口模式（Stash 链路用）</label>
+        <div class="opt-list">
+          <label class="opt"><input type="radio" name="route" value="global" checked><span><b>全局</b><span class="d" style="display:block">手机所有流量都从住宅IP出去。最稳，推荐。</span></span></label>
+          <label class="opt"><input type="radio" name="route" value="split"><span><b>分流</b><span class="d" style="display:block">只有社媒域名走住宅IP，其他走机场。省住宅流量，但平台新增的域名可能漏掉。</span></span></label>
+        </div>
+      </div>
+      <p class="hint" id="sheetErr" role="alert" style="color:var(--bad)"></p>
+      <div class="sheet-foot">
+        <button class="btn" type="button" data-act="close-sheet">取消</button>
+        <button class="btn primary" type="submit" id="sheetSubmit">创建并检测</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="qrcode.js"></script>
+<script src="parse-proxy.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

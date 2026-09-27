@@ -1,0 +1,22 @@
+services:
+  panel:
+    build: .
+    image: luodi-panel
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+    ports:
+      # 面板只给本机访问，外网通过 Cloudflare Tunnel 进来
+      - "127.0.0.1:8080:8080"
+      # 中转：手机直接连这个端口（Cloudflare Tunnel 转发不了它）
+      - "${RELAY_PORT:-443}:8443"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    depends_on:
+      - panel

@@ -1,84 +1,87 @@
 # 落地链路台
 
-把**机场节点**和**静态住宅IP**绑成一条条固定出口的链路，分发给 iPhone，用来运营社媒账号。
+把**静态住宅IP**绑定到每一台 iPhone，生成二维码，扫码即用，用于社媒账号日常运营。平台看到的永远是这台手机绑定的那个住宅IP。
 
-```
-iPhone ──▶ 前置：机场节点 ──▶ 落地：静态住宅IP ──▶ TikTok / Instagram …
-           负责出境和加密        平台看到的就是这个 IP
-```
+每条链路同时给出两种导入方式：
 
-交互原型在 [`prototype/index.html`](prototype/index.html)（全部为示例数据，不联网）。
-
----
-
-## 1. 三条原则
-
-面板里所有功能都围绕这三条设计：
-
-1. **一号一IP，落地固定，前置可换。** 平台只看得到落地IP。前置节点挂了可以随便切，只要落地IP不变，账号就不受影响。所以前置用「故障切换组」，落地永远只有一个。
-2. **断线不回落。** 链路断了就断网，绝不能自动退回机场IP或本机IP。配置里「社媒出口」组只放落地这一个节点，没有 `DIRECT` 兜底。
-3. **环境一致。** 出口IP、DNS、IPv6、手机时区、语言、地区要对得上。面板能检测的自动检测，检测不到的（手机设置）给出明确提示。
-
-为什么必须先过机场：住宅IP大多是明文 SOCKS5/HTTP，从国内直连既会被墙也会暴露特征，而且很多住宅IP供应商直接屏蔽中国大陆来源。先连机场出境，再从住宅IP落地，未加密的那一段只在境外。
-
-## 2. 功能模块
-
-| 模块 | MVP（第一阶段） | 之后 |
+| 方式 | 路径 | 适合 |
 |---|---|---|
-| **机场订阅** | 多个订阅；定时拉取；解析 Clash YAML 和 Base64 节点列表；从 `subscription-userinfo` 响应头读流量和到期；节点测速 | 按地区、倍率自动打标签 |
-| **住宅IP库** | 智能粘贴（单条/批量）；记录供应商、到期日、成本；检测地区、ASN、运营商、IP 类型（住宅 / ISP / 机房）、风险分 | 到期前提醒续费；每日自动检测 |
-| **链路** | 设备 + 账号 + 落地IP + 前置策略；前置「自动」＝同国家节点组成 fallback 组，可跨机场；全局 / 分流两种出口模式 | 批量建链路；换绑记录 |
-| **导出到手机** | 每台设备一个订阅链接 + 二维码；按 User-Agent 返回 Stash / Clash Meta / Surge 格式 | 中转模式（见 §3） |
-| **健康检查** | 服务端用 mihomo 内核复现整条链路，访问 IP 检测接口，确认出口IP＝落地IP；延迟分段显示 | 出口漂移、IP 进黑名单时推送到 Telegram |
-| **安全** | 管理员登录；密码和订阅链接加密存储；设备订阅 token 可随时吊销 | 两步验证；操作日志 |
+| **小火箭扫码（推荐）** | iPhone → 你的 VPS（VLESS Reality）→ 住宅IP → 平台 | 小火箭、Loon、Quantumult X、Stash，扫一个码就能用 |
+| **Stash 订阅** | iPhone → 机场节点（自动故障切换）→ 住宅IP → 平台 | 想用已购机场节点出境时 |
 
-一个 IP 只能绑定一台设备。新建链路时已占用的 IP 不可选；机房 IP 会标红但允许选择。
+两条路都是**断线不回落**：住宅IP连不上就断网，绝不会从机场IP或 VPS 的 IP 漏出去。
 
-## 3. iPhone 客户端怎么接
+## 功能
 
-| 客户端 | 做法 | 状态 |
-|---|---|---|
-| **Stash** / 其他 Clash Meta（mihomo）内核客户端 | 订阅里给落地节点写 `dialer-proxy: 前置组`，一个订阅链接搞定 | Stash 文档和 mihomo 文档都有 `dialer-proxy`，已确认 |
-| **Surge** | 落地节点加 `underlying-proxy=前置节点`，用托管配置下发 | 注意 Surge 不支持 VLESS，面板要自动跳过这类前置节点 |
-| **小火箭 Shadowrocket / Loon** | 两个 App 都支持在 App 内手动建「代理链」。面板给出住宅IP节点的二维码和建链顺序（先机场节点，再住宅IP） | 需要手动一次；配置文件写法各版本不一，暂不自动生成 |
+- **机场订阅**：支持 Clash YAML 和 Base64 节点列表（ss / vmess / vless / trojan / hysteria2）；自动读取已用流量、总流量、到期时间；节点测速；每 30 分钟自动同步。
+- **住宅IP**：整段粘贴自动识别 IP、端口、账户、密码（十几种常见格式，见下文）；自动检测出口IP、地区、运营商、是否机房IP；到期提醒。
+- **链路**：设备 + 账号 + 住宅IP，一个 IP 只能绑一台设备；每 15 分钟自动检测两条路径的出口IP，出口变了会标红。
+- **二维码**：中转节点二维码、Stash 订阅二维码、住宅IP节点二维码；泄露了可一键重置，旧码立即失效。
+- **安全**：面板密码登录（带失败次数限制），住宅IP密码、订阅链接、节点参数 AES-256-GCM 加密存储；面板只通过 Cloudflare Tunnel 对外，不开放端口。
 
-`dialer-proxy` 生成的配置大致如下（原型里可以看到每条链路完整的实时生成结果）：
+## 部署（Debian 13 VPS + Cloudflare 域名）
 
-```yaml
-proxies:
-  - {name: "前置·美国 洛杉矶 01", type: vless, server: …, port: 443}   # 从机场订阅同步
-  - {name: "前置·美国 西雅图 01", type: vmess, server: …, port: 443}
-  - name: "落地·US 洛杉矶"
-    type: socks5
-    server: 203.0.113.24
-    port: 1080
-    username: "…"
-    password: "…"
-    dialer-proxy: "前置-US"          # 先连前置，再从住宅IP出去
+### 1. 在 Cloudflare 创建隧道
 
-proxy-groups:
-  - name: "前置-US"
-    type: fallback                   # 前置坏了切下一个，落地IP不变
-    url: https://www.gstatic.com/generate_204
-    interval: 300
-    proxies: ["前置·美国 洛杉矶 01", "前置·美国 西雅图 01"]
-  - name: "社媒出口"
-    type: select
-    proxies: ["落地·US 洛杉矶"]       # 只放落地，断线不回落
+1. 登录 Cloudflare → **Zero Trust** → **Networks** → **Tunnels** → **Create a tunnel**，类型选 **Cloudflared**，起个名字。
+2. 安装方式页面里会出现一串 `eyJ...` 开头的 **Token**，复制下来（不用在服务器上按它的命令安装，我们的脚本会用 Docker 跑）。
+3. 下一步 **Public Hostname**：
+   - Subdomain：例如 `panel`，Domain：选你的域名
+   - Service：Type 选 `HTTP`，URL 填 `panel:8080`
+4. 保存。
 
-rules:
-  - MATCH,社媒出口                   # 全局模式：整台手机都走住宅IP
+### 2. 在 VPS 上安装
+
+```bash
+ssh root@你的VPS公网IP
+apt-get update && apt-get install -y git
+git clone -b claude/optimistic-volta-qx6t7n https://github.com/shuerhome/VPN.git /opt/luodi
+cd /opt/luodi
+bash deploy/install.sh
 ```
 
-**建议优先用 Stash**：一台手机导入一个订阅，前置自动切换，面板改了手机自动更新，最省心。
+> 仓库是私有的话，`git clone` 时用 GitHub 用户名 + [Personal Access Token](https://github.com/settings/tokens) 作为密码。
 
-**第二阶段：中转模式。** 如果一定要用小火箭又不想手动建链，可以在一台境外 VPS 上跑 sing-box：每台手机一个入站（如 VLESS Reality），出站＝该手机绑定的住宅IP。手机只导入一个普通节点，任何客户端都能用。代价是多一台服务器，而且这时出境由 VPS 承担，机场就变成可选的了。两种模式的配置可以共用同一套数据。
+脚本会问四个问题：面板域名、Tunnel Token、VPS 公网 IP（默认自动检测）、中转端口（默认 443）。然后自动安装 Docker、生成密码和加密密钥、编译并启动。结束时会打印**登录密码**。
 
-## 4. 住宅IP 智能识别
+如果 Hostinger 控制台里开了防火墙，放行中转端口（默认 `443/tcp`）。
 
-实现在 [`prototype/parse-proxy.js`](prototype/parse-proxy.js)，前后端可以共用。测试：`node --test prototype/parse-proxy.test.mjs`。
+### 3. 开始使用
 
-能识别的格式：
+1. 打开 `https://你的面板域名`，用打印出来的密码登录。
+2. **机场订阅** → 粘贴订阅链接 → 添加（纯 IP 的订阅地址会自动勾选「忽略证书错误」）。
+3. **住宅IP** → 把供应商发来的内容整段粘贴 → 加入IP库，几秒后能看到出口IP和地区。
+4. **链路** → 新建链路 → 填设备名、账号，选住宅IP → 创建。
+5. 用 iPhone 小火箭扫右侧二维码 → 选中节点 → 打开开关。
+6. 按「环境检查」提示，把 iPhone 的时区、语言、地区改成和住宅IP一致。
+
+### 日常维护
+
+```bash
+cd /opt/luodi
+docker compose logs -f panel          # 看日志
+git pull && docker compose up -d --build   # 更新
+```
+
+**备份** `/opt/luodi/.env` 和 `/opt/luodi/data/`。`.env` 里的 `SECRET_KEY` 丢了，数据库里加密的密码就解不开了。
+
+## 配置项（`.env`）
+
+| 变量 | 说明 | 默认 |
+|---|---|---|
+| `PANEL_PASSWORD` | 面板登录密码，至少 8 位 | 必填 |
+| `SECRET_KEY` | 加密密钥，`openssl rand -base64 32` | 不填则自动生成到 `data/secret.key` |
+| `PUBLIC_URL` | 面板网址，用来生成订阅链接 | 按请求推断 |
+| `TUNNEL_TOKEN` | Cloudflare Tunnel Token | 必填 |
+| `RELAY_HOST` | 手机连接中转用的地址（VPS 公网 IP，不能是走 Cloudflare 代理的域名） | 空则不开启中转 |
+| `RELAY_PORT` | 中转对外端口 | `443` |
+| `REALITY_SNI` | Reality 伪装的网站 | `www.microsoft.com` |
+| `SYNC_EVERY` / `CHECK_EVERY` | 订阅同步 / 链路检测间隔 | `30m` / `15m` |
+| `CHECK_URLS` | 返回出口IP的检测接口，逗号分隔 | ipify、ifconfig.me、icanhazip |
+
+## 住宅IP智能识别
+
+实现在 [`web/parse-proxy.js`](web/parse-proxy.js)。支持的格式：
 
 | 格式 | 例子 |
 |---|---|
@@ -86,70 +89,39 @@ rules:
 | 账号:密码:IP:端口 | `user:pass:203.0.113.24:1080` |
 | 账号:密码@IP:端口 | `user:pass@203.0.113.24:1080` |
 | IP:端口@账号:密码 | `203.0.113.24:1080@user:pass` |
-| 协议链接 | `socks5://user:pass@host:1080#备注`、`http://…`（支持 URL 编码） |
-| 小火箭 Base64 分享链接 | `socks://dXNlcjpwYXNzQDIwMy4wLjExMy4yNDoxMDgw#备注` |
-| 空格 / Tab / 竖线 / 逗号分隔 | `203.0.113.24 1080 user pass`，行里带 `socks5`/`http` 会识别为协议 |
-| 供应商的带标签文本 | `IP地址：… 端口：… 账号：… 密码：… 到期时间：…`（中英文标签、全角冒号都行） |
-| 只有 IP:端口 | 识别为白名单授权，给出提示 |
+| 协议链接 | `socks5://user:pass@host:1080#备注`、`http://…` |
+| 小火箭 Base64 分享链接 | `socks://dXNlcjpwYXNz…#备注` |
+| 空格 / Tab / 竖线分隔 | `203.0.113.24 1080 user pass` |
+| 供应商的带标签文本 | `IP地址：… 端口：… 账号：… 密码：… 到期时间：…` |
 
-识别规则：
+密码里带 `:`、`@`、`#` 也能正确拆分；批量粘贴自动去重；在 IP 输入框里直接粘贴整串也会自动拆开。
 
-1. 先看有没有标签（IP / 端口 / 账号 / 密码 至少命中两个），有就按标签取值，多条记录用空行分隔。
-2. 有协议头的按 URL 解析；`@` 前面不含冒号时尝试 Base64 解码。
-3. 有 `@` 的，哪一边是「地址:端口」哪一边就是服务器，另一边是账号密码。`@` 取最后一个，所以密码里有 `@` 也没问题。
-4. 其余按分隔符切开，找「IP 或域名 + 紧挨着的端口」，剩下的第一个是账号，其余拼起来是密码（密码里有冒号也能保留）。优先认 IPv4，账号里带点也不会被误认成域名。
-5. 全角符号统一转半角；按「协议+地址+端口+账号」去重；内网/保留地址、缺密码都会给出警告；认不出的行单独列出来并说明原因。
+## 工作原理
 
-交互上：粘贴框实时识别，第一条自动填进 IP / 端口 / 账户 / 密码四个输入框（有高亮闪一下提示）；点其他结果切换；在任何一个输入框里直接粘贴整串，也会自动拆开填好。批量时一次全部加入IP库。
+- **检测**：服务器临时启动一个 mihomo，按手机上一模一样的路径（机场节点 → 住宅IP，或直连住宅IP）访问出口IP接口。第一次检测到的出口IP记为基准，之后出口变化会报警；确认供应商换线后可以点「以当前出口为准」。
+- **中转**：VPS 上常驻一个 mihomo，对外开一个 VLESS Reality 入站。每条链路是其中一个用户，按用户把流量送到它绑定的住宅IP；认不出的连接一律拒绝。增删链路会热加载，不影响其他手机。
+- **Stash 订阅**：住宅IP节点写 `dialer-proxy: 前置组`，前置组是与住宅IP同国家的机场节点（fallback 自动切换），「社媒出口」组里只有住宅IP一个节点。
 
-## 5. 前端设计方向
+## 开发
 
-**定位**：运营人员每天打开看一眼「哪条链路有问题」，偶尔批量加 IP、建链路。所以是信息密度高、状态一眼可见的运维台，而不是花哨的仪表盘。
-
-- **链路是主角。** 首页就是链路列表，每行画出 `前置 → 落地` 两跳，线上标延迟；右侧是选中链路的详情：完整四站路径（手机 → 前置 → 落地 → 平台看到的IP）、环境检查清单、导入二维码和配置预览。
-- **颜色编码跳点类型，而不是装饰。** 机场/前置固定用群青色，住宅/落地固定用橙色，整个面板里只要看到这两个颜色就知道说的是哪一跳。正常/注意/故障另用绿/黄/红的状态胶囊，和跳点颜色互不混用。
-- **数据用等宽字体。** IP、端口、延迟、配置全部用 JetBrains Mono 并对齐数字，界面文字用思源黑体（Noto Sans SC）。
-- **问题直接写成人话。** 行尾直接写「出口IP 198.51.100.99 与绑定的 198.51.100.20 不一致」「住宅IP 5 天后到期」，不用让人点进去才知道哪里坏了。
-- **亮色 / 暗色两套主题**，冷灰底色；手机上侧栏收成顶部标签栏，四站路径改成竖排，方便在 iPhone 上直接扫码导入。
-
-页面结构：
-
-```
-链路（首页）   摘要条：链路数 / 正常 / 需注意 / 故障 / 7天内到期
-               列表 + 详情：路径图、环境检查、导入到手机（Stash / Surge / 小火箭）
-住宅IP        智能粘贴 + 识别结果 + 四个字段；IP 库表格（地区、运营商、类型、纯净度、到期、绑定设备）
-机场订阅      订阅卡片（流量、到期、在线节点）；节点表（地区筛选、延迟、被多少条链路用作前置）
+```bash
+go test ./...                                   # 单元测试
+MIHOMO_BIN=/path/to/mihomo go test ./...        # 连同 mihomo 集成测试（链路、中转、配置校验）
+node --test prototype/parse-proxy.test.mjs      # 住宅IP识别器测试
+PANEL_PASSWORD=devpass123 DATA_DIR=./data MIHOMO_BIN=/path/to/mihomo go run ./cmd/panel
 ```
 
-## 6. 技术选型建议
-
-- **前端**：Vue 3 + Vite + Naive UI（中文生态好，自带暗色主题）+ Pinia。原型里的样式变量可以直接搬成主题 token。
-- **后端**：Go + SQLite。选 Go 是因为 mihomo 本身是 Go 写的，可以直接把它当库引入：订阅解析、节点测速、整条链路的出口检测都用同一个内核，结果和手机上的表现一致。打包成单个二进制或一个 Docker 镜像，部署在境外小 VPS 上即可。
-- **订阅接口**：`GET /sub/{设备token}`，按 User-Agent 或 `?target=` 返回对应格式；token 可吊销，吊销后旧链接立即失效。
-- **拉取机场订阅**：用 Clash Meta 的 User-Agent 去请求，多数机场会返回带完整节点的 YAML；同时读取 `subscription-userinfo` 响应头拿流量和到期。
-- **IP 检测**：地区和 ASN 用 ipinfo / ip-api 这类接口；IP 类型和风险分可以接 IPQS、Scamalytics 等，按需付费。
-- **敏感数据**：住宅IP密码和机场订阅链接用 AES-GCM 加密后入库，主密钥放环境变量。订阅链接就等于账号密码，不要写进代码仓库或提交记录。
-
-## 7. 数据模型
+目录结构：
 
 ```
-airport       机场订阅：名称、订阅链接(加密)、流量、到期、上次同步
-node          节点：所属机场、名称、国家、协议、完整参数(JSON)、延迟、是否在线
-residential   住宅IP：协议、地址、端口、账号、密码(加密)、供应商、国家/城市、ASN、类型、风险分、到期日、成本
-device        设备：名称、订阅 token、备注
-account       账号：平台、用户名、所属设备
-chain         链路：设备、住宅IP(唯一)、前置策略(自动/固定节点)、出口模式(全局/分流)、状态
-check_log     检测记录：链路、时间、出口IP、分段延迟、错误
+cmd/panel         程序入口
+internal/sub      机场订阅拉取与解析
+internal/gen      Stash / Clash Meta 配置、分享链接生成
+internal/check    用 mihomo 检测链路和节点
+internal/relay    中转（VLESS Reality）
+internal/store    SQLite 存储与加密字段
+internal/server   网页与接口
+web               前端（原生 JS，编译进二进制）
+prototype         最早的交互原型
+deploy            安装脚本
 ```
-
-## 8. 路线图
-
-1. **MVP**：机场订阅解析、住宅IP库（智能粘贴）、链路、Stash/Clash Meta 订阅输出、手动检测。
-2. **稳定运营**：定时检测和 Telegram 告警、到期提醒、Surge 托管配置、小火箭导入二维码。
-3. **规模化**：中转模式（sing-box）、批量建链路、多用户权限、操作日志。
-
-## 原型
-
-- `prototype/index.html`：交互原型，直接用浏览器打开。可以切换链路、看各客户端的配置实时生成、在「住宅IP」里试智能粘贴、新建链路。
-- `prototype/parse-proxy.js`：住宅IP识别器（浏览器和 Node 通用）。
-- `prototype/parse-proxy.test.mjs`：识别器测试，21 个用例。

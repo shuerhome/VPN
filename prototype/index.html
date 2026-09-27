@@ -1,0 +1,1212 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>落地链路台</title>
+<meta name="description" content="把机场节点和静态住宅IP绑成一条条固定出口的链路，给 iPhone 社媒账号使用。交互原型，全部为示例数据。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+:root {
+  --ground: #EDF0F3;
+  --surface: #FFFFFF;
+  --surface-2: #F5F7F9;
+  --sunken: #E5E9EE;
+  --ink: #141A21;
+  --ink-2: #3A434F;
+  --muted: #667180;
+  --line: #D9DEE4;
+  --line-strong: #C2C9D2;
+  --front: #3446D4;
+  --front-soft: #E7EAFB;
+  --land: #C9560F;
+  --land-soft: #FBEADF;
+  --ok: #1B8452;
+  --ok-soft: #E0F2E9;
+  --warn: #946600;
+  --warn-soft: #FAF0D2;
+  --bad: #C2332B;
+  --bad-soft: #FBE3E1;
+  --code-bg: #F3F5F8;
+  --code-ink: #1E2630;
+  --shadow: 0 1px 2px rgba(20, 26, 33, .05), 0 10px 30px rgba(20, 26, 33, .07);
+  --font-ui: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --r: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #0D1116; --surface: #141920; --surface-2: #1A2029; --sunken: #0A0E12;
+    --ink: #E3E8EE; --ink-2: #C3CBD5; --muted: #8B96A5; --line: #252D38; --line-strong: #354151;
+    --front: #8D99FF; --front-soft: #1D2250; --land: #F08C4E; --land-soft: #3A2416;
+    --ok: #45C388; --ok-soft: #12301F; --warn: #E2B440; --warn-soft: #33290E; --bad: #F2766C; --bad-soft: #3A1614;
+    --code-bg: #0E1318; --code-ink: #D5DCE4;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px rgba(0, 0, 0, .35);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0D1116; --surface: #141920; --surface-2: #1A2029; --sunken: #0A0E12;
+  --ink: #E3E8EE; --ink-2: #C3CBD5; --muted: #8B96A5; --line: #252D38; --line-strong: #354151;
+  --front: #8D99FF; --front-soft: #1D2250; --land: #F08C4E; --land-soft: #3A2416;
+  --ok: #45C388; --ok-soft: #12301F; --warn: #E2B440; --warn-soft: #33290E; --bad: #F2766C; --bad-soft: #3A1614;
+  --code-bg: #0E1318; --code-ink: #D5DCE4;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px rgba(0, 0, 0, .35);
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font: 14px/1.6 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+.mono, code, pre, .ip { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--front); outline-offset: 2px; border-radius: 4px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; line-height: 1.3; }
+p { margin: 0; }
+
+/* ---------- 外壳 ---------- */
+.app { display: grid; grid-template-columns: 228px minmax(0, 1fr); min-height: 100%; }
+.rail {
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  padding: 22px 14px;
+  display: flex; flex-direction: column; gap: 26px;
+  position: sticky; top: env(safe-area-inset-top, 0px); height: 100vh; height: 100dvh;
+}
+.brand { padding-inline: 8px; display: grid; gap: 2px; }
+.brand b { font-size: 18px; font-weight: 700; letter-spacing: .02em; display: flex; align-items: center; gap: 8px; }
+.brand small { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .14em; color: var(--muted); text-transform: uppercase; }
+.brand-mark { display: inline-flex; align-items: center; gap: 3px; }
+.brand-mark i { width: 7px; height: 7px; border-radius: 50%; display: block; }
+.brand-mark i:nth-child(1) { background: var(--ink); }
+.brand-mark i:nth-child(2) { background: var(--front); }
+.brand-mark i:nth-child(3) { background: var(--land); }
+.nav { display: grid; gap: 2px; }
+.nav a {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: 6px;
+  color: var(--ink-2); text-decoration: none; font-weight: 500;
+}
+.nav a:hover { background: var(--surface-2); }
+.nav a[aria-current="page"] { background: var(--sunken); color: var(--ink); }
+.nav svg { width: 18px; height: 18px; flex: none; }
+.nav .count { margin-left: auto; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.rail-foot { margin-top: auto; padding: 12px 10px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+
+main { padding: 26px 32px 60px; min-width: 0; }
+.view[hidden] { display: none !important; }
+.view-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 20px; margin-bottom: 18px; }
+.view-head h1 { font-size: 24px; font-weight: 700; }
+.view-head p { color: var(--muted); margin-top: 4px; max-width: 62ch; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line-strong); background: var(--surface);
+  padding: 7px 13px; border-radius: 6px; cursor: pointer; font-weight: 500; font-size: 13.5px;
+  white-space: nowrap;
+}
+.btn:hover { border-color: var(--ink-2); }
+.btn.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.btn.primary:hover { opacity: .9; }
+.btn.small { padding: 4px 10px; font-size: 12.5px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+.eyebrow { font-size: 11.5px; font-weight: 500; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
+
+/* ---------- 状态 ---------- */
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 2px 9px 2px 8px; border-radius: 999px; white-space: nowrap; }
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill.ok { color: var(--ok); background: var(--ok-soft); }
+.pill.warn { color: var(--warn); background: var(--warn-soft); }
+.pill.bad { color: var(--bad); background: var(--bad-soft); }
+.pill.pending { color: var(--muted); background: var(--sunken); }
+.tag { display: inline-block; font-size: 11.5px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line-strong); color: var(--ink-2); line-height: 18px; white-space: nowrap; }
+.tag.cc { font-family: var(--font-mono); font-weight: 600; letter-spacing: .04em; }
+
+.summary { display: flex; flex-wrap: wrap; gap: 10px 26px; padding: 14px 18px; margin-bottom: 16px; align-items: baseline; }
+.summary .stat { display: flex; align-items: baseline; gap: 8px; }
+.summary .num { font-family: var(--font-mono); font-size: 22px; font-weight: 600; }
+.summary .lbl { color: var(--muted); font-size: 13px; }
+.summary .stat.ok .num { color: var(--ok); }
+.summary .stat.warn .num { color: var(--warn); }
+.summary .stat.bad .num { color: var(--bad); }
+
+/* ---------- 链路列表 ---------- */
+.chains-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 16px; align-items: start; }
+.chain-list { list-style: none; margin: 0; padding: 0; overflow: hidden; }
+.chain-row { padding: 14px 16px; border-bottom: 1px solid var(--line); cursor: pointer; display: grid; gap: 9px; }
+.chain-row:last-child { border-bottom: 0; }
+.chain-row:hover { background: var(--surface-2); }
+.chain-row[aria-selected="true"] { background: var(--sunken); }
+.row-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.row-top .dev { font-weight: 700; white-space: nowrap; }
+.row-top .accts { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.row-foot { font-size: 12.5px; color: var(--muted); }
+.row-foot.bad { color: var(--bad); }
+.row-foot.warn { color: var(--warn); }
+
+/* 跳点：设备 → 前置(机场) → 落地(住宅IP) → 平台 */
+.hops { display: flex; align-items: center; min-width: 0; }
+.hop { border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; min-width: 0; background: var(--surface); display: grid; }
+.hop .k { font-size: 11px; color: var(--muted); line-height: 1.4; white-space: nowrap; }
+.hop .v { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hop.front { border-color: color-mix(in srgb, var(--front) 45%, var(--line)); }
+.hop.front .k { color: var(--front); }
+.hop.land { border-color: color-mix(in srgb, var(--land) 45%, var(--line)); }
+.hop.land .k { color: var(--land); }
+.hop.down { border-style: dashed; opacity: .7; }
+.wire { flex: 1 1 28px; min-width: 24px; position: relative; height: 18px; display: flex; align-items: center; }
+.wire::before { content: ""; position: absolute; inset: 50% 0 auto; height: 2px; transform: translateY(-50%); background: var(--line-strong); }
+.wire::after { content: ""; position: absolute; right: 0; top: 50%; width: 6px; height: 6px; border-top: 2px solid var(--line-strong); border-right: 2px solid var(--line-strong); transform: translate(0, -50%) rotate(45deg); }
+.wire span { position: relative; margin: 0 auto; background: inherit; padding: 0 4px; font-family: var(--font-mono); font-size: 11px; color: var(--muted); background: var(--surface); z-index: 1; }
+.chain-row:hover .wire span { background: var(--surface-2); }
+.chain-row[aria-selected="true"] .wire span { background: var(--sunken); }
+.wire.broken::before { background: repeating-linear-gradient(90deg, var(--bad) 0 5px, transparent 5px 9px); }
+.wire.broken::after { border-color: var(--bad); }
+.wire.broken span { color: var(--bad); }
+
+/* ---------- 详情 ---------- */
+.detail { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.detail > section { padding: 16px 18px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
+.code-wrap, .export-grid > * { min-width: 0; }
+.detail > section:last-child { border-bottom: 0; }
+.detail-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.detail-head h2 { font-size: 19px; }
+.detail-head .actions { margin-left: auto; }
+.acct-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.acct { font-size: 12.5px; padding: 2px 8px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--line); }
+.acct b { font-weight: 500; color: var(--muted); margin-right: 4px; }
+
+.route { display: grid; grid-template-columns: repeat(3, minmax(0, max-content) minmax(22px, 1fr)) minmax(0, max-content); align-items: center; }
+.station { display: grid; gap: 1px; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--line); min-width: 0; background: var(--surface); }
+.station > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.station .k { font-size: 11px; color: var(--muted); }
+.station .v { font-weight: 700; font-size: 13.5px; }
+.station .s { font-size: 11.5px; color: var(--muted); }
+.station.front { background: var(--front-soft); border-color: transparent; }
+.station.front .k { color: var(--front); }
+.station.land { background: var(--land-soft); border-color: transparent; }
+.station.land .k { color: var(--land); }
+.route .wire { min-width: 22px; }
+
+.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.checks li { display: grid; grid-template-columns: 18px 1fr; gap: 10px; padding: 7px 0; border-top: 1px dashed var(--line); }
+.checks li:first-child { border-top: 0; }
+.checks .ic { width: 16px; height: 16px; border-radius: 50%; margin-top: 3px; display: grid; place-items: center; font-size: 10px; font-weight: 700; color: var(--surface); }
+.checks .ok .ic { background: var(--ok); }
+.checks .warn .ic { background: var(--warn); }
+.checks .bad .ic { background: var(--bad); }
+.checks .info .ic { background: var(--muted); }
+.checks .t { font-weight: 500; }
+.checks .d { font-size: 12.5px; color: var(--muted); }
+
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 7px 10px; cursor: pointer; color: var(--muted); font-weight: 500; white-space: nowrap; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+.export-grid { display: grid; grid-template-columns: minmax(0, 1fr) 128px; gap: 14px; align-items: start; }
+.sub-url { display: flex; gap: 6px; align-items: center; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 6px 6px 10px; min-width: 0; }
+.sub-url code { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.qr { width: 128px; height: 128px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); background: #fff; display: grid; place-items: center; color: #667180; font-size: 12px; }
+.qr svg { width: 100%; height: 100%; display: block; }
+.export-note { font-size: 12.5px; color: var(--muted); }
+.export-note ol { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 2px; }
+.code-wrap { position: relative; }
+pre.config {
+  margin: 0; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--line); border-radius: 6px;
+  padding: 12px 14px; font-size: 12px; line-height: 1.65; overflow: auto; max-height: 360px; white-space: pre;
+}
+pre.config .c { color: var(--muted); }
+pre.config .k { color: var(--front); }
+pre.config .l { color: var(--land); font-weight: 600; }
+.code-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; }
+.seg button { background: var(--surface); border: 0; padding: 4px 10px; font-size: 12.5px; cursor: pointer; color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--line-strong); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.hint { font-size: 12.5px; color: var(--muted); }
+.hint.warn { color: var(--warn); }
+
+/* ---------- 住宅IP ---------- */
+.ingest { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 0; margin-bottom: 18px; }
+.ingest > div { padding: 16px 18px; display: grid; gap: 12px; align-content: start; }
+.ingest > div + div { border-left: 1px solid var(--line); }
+.ingest h2 { font-size: 16px; }
+textarea#paste {
+  width: 100%; min-height: 212px; resize: vertical;
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7;
+  background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px;
+}
+textarea#paste:focus { border-color: var(--front); outline: none; box-shadow: 0 0 0 3px var(--front-soft); }
+.parsed { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 250px; overflow: auto; }
+.parsed li { border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; cursor: pointer; display: grid; gap: 5px; }
+.parsed li:hover { border-color: var(--line-strong); }
+.parsed li[aria-selected="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.parsed .fmt { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+.parsed .fmt .n { font-family: var(--font-mono); color: var(--ink-2); }
+.toks { display: flex; flex-wrap: wrap; gap: 4px; }
+.tok { font-family: var(--font-mono); font-size: 12px; background: var(--surface-2); border-radius: 4px; padding: 0 6px; border: 1px solid var(--line); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.tok i { font-style: normal; font-family: var(--font-ui); color: var(--muted); font-size: 11px; margin-right: 5px; }
+.parsed .warn-line { font-size: 12px; color: var(--warn); }
+.parsed li.err { cursor: default; border-style: dashed; }
+.parsed li.err .fmt { color: var(--bad); }
+
+.fields { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, .7fr); gap: 10px 12px; }
+.field { display: grid; gap: 4px; min-width: 0; }
+.field.wide { grid-column: 1 / -1; }
+.field label { font-size: 12px; color: var(--muted); font-weight: 500; }
+.field input, .field select {
+  width: 100%; min-width: 0; border: 1px solid var(--line-strong); border-radius: 6px; padding: 7px 10px; background: var(--surface);
+}
+.field input.mono { font-size: 13px; }
+.field input:focus, .field select:focus { border-color: var(--front); outline: none; box-shadow: 0 0 0 3px var(--front-soft); }
+.field input.flash { animation: flash 1s ease-out; }
+@keyframes flash { from { background: var(--land-soft); border-color: var(--land); } to { background: var(--surface); } }
+@media (prefers-reduced-motion: reduce) { .field input.flash { animation: none; } }
+.ingest-foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
+th { font-size: 12px; font-weight: 500; color: var(--muted); background: var(--surface-2); }
+tr:last-child td { border-bottom: 0; }
+td .sub { display: block; font-size: 12px; color: var(--muted); }
+tr.fresh td { background: var(--land-soft); }
+.score { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); }
+.score .bar { width: 44px; height: 5px; border-radius: 3px; background: var(--sunken); overflow: hidden; }
+.score .bar i { display: block; height: 100%; background: var(--ok); }
+.score.mid .bar i { background: var(--warn); }
+.score.low .bar i { background: var(--bad); }
+
+/* ---------- 机场 ---------- */
+.air-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.air { padding: 16px 18px; display: grid; gap: 10px; }
+.air-top { display: flex; align-items: center; gap: 10px; }
+.air-top h3 { font-size: 16px; }
+.air-top .btn { margin-left: auto; }
+.air code { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.meter { height: 6px; border-radius: 3px; background: var(--sunken); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--front); }
+.air-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; font-size: 12.5px; color: var(--muted); }
+.air-stats b { display: block; font-family: var(--font-mono); font-size: 14px; color: var(--ink); font-weight: 600; }
+.air-stats .warn b { color: var(--warn); }
+.air.add { border-style: dashed; background: transparent; align-content: center; }
+.air.add form { display: flex; gap: 8px; }
+.air.add input { flex: 1; min-width: 0; border: 1px solid var(--line-strong); border-radius: 6px; padding: 7px 10px; background: var(--surface); font-family: var(--font-mono); font-size: 12.5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.chips button { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 999px; padding: 3px 12px; font-size: 12.5px; cursor: pointer; }
+.chips button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.lat { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); }
+.lat .bar { width: 70px; height: 5px; background: var(--sunken); border-radius: 3px; overflow: hidden; }
+.lat .bar i { display: block; height: 100%; background: var(--front); }
+.lat.dead { color: var(--bad); }
+
+/* ---------- 新建链路 ---------- */
+.sheet-bg { position: fixed; inset: 0; background: rgba(8, 11, 15, .45); display: grid; place-items: center; padding: 16px; z-index: 20; }
+.sheet { width: min(560px, 100%); max-height: calc(100dvh - 32px); overflow: auto; box-shadow: var(--shadow); }
+.sheet form { display: grid; gap: 14px; padding: 18px 20px 20px; }
+.sheet h2 { font-size: 18px; }
+.opt-list { display: grid; gap: 6px; }
+.opt { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; cursor: pointer; }
+.opt input { margin-top: 5px; }
+.opt .d { font-size: 12.5px; color: var(--muted); }
+.opt:has(input:checked) { border-color: var(--ink); }
+.sheet-foot { display: flex; justify-content: flex-end; gap: 8px; }
+
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--surface); padding: 9px 16px; border-radius: 6px; font-size: 13px; box-shadow: var(--shadow); z-index: 30; max-width: calc(100% - 32px); }
+
+/* ---------- 窄屏 ---------- */
+@media (max-width: 1180px) {
+  .chains-layout { grid-template-columns: minmax(0, 1fr); }
+  .detail { position: static; }
+}
+@media (max-width: 900px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail { position: sticky; top: env(safe-area-inset-top, 0px); height: auto; z-index: 10; flex-direction: row; align-items: center; gap: 12px; padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .brand small, .rail-foot, .nav .count { display: none; }
+  .brand { padding: 0; }
+  .brand b { font-size: 15px; white-space: nowrap; }
+  .nav { display: flex; gap: 2px; }
+  .nav a { padding: 6px 10px; white-space: nowrap; }
+  .nav svg { display: none; }
+  main { padding: 18px 16px 48px; }
+  .ingest { grid-template-columns: minmax(0, 1fr); }
+  .ingest > div + div { border-left: 0; border-top: 1px solid var(--line); }
+}
+@media (max-width: 560px) {
+  .view-head h1 { font-size: 20px; }
+  .export-grid { grid-template-columns: minmax(0, 1fr); }
+  .hops { flex-wrap: wrap; row-gap: 4px; }
+  .hops .hop { max-width: 100%; }
+  .fields { grid-template-columns: minmax(0, 1fr); }
+  .route { grid-template-columns: minmax(0, 1fr); justify-items: stretch; }
+  .route .wire { height: 20px; min-width: 0; width: 2px; justify-self: start; margin-left: 20px; }
+  .route .wire::before { inset: 0 auto 0 0; width: 2px; height: auto; transform: none; }
+  .route .wire::after { display: none; }
+  .route .wire span { position: absolute; left: 10px; white-space: nowrap; background: none; }
+}
+</style>
+
+<div class="app">
+  <aside class="rail">
+    <div class="brand">
+      <b><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>落地链路台</b>
+      <small>Residential exit chains</small>
+    </div>
+    <nav class="nav" aria-label="主导航">
+      <a href="#chains" data-view="chains">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="4" cy="10" r="2.2"/><circle cx="10" cy="10" r="2.2"/><circle cx="16" cy="10" r="2.2"/><path d="M6.2 10h1.6M12.2 10h1.6"/></svg>
+        链路 <span class="count" id="navChains"></span>
+      </a>
+      <a href="#ips" data-view="ips">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3.5 9.2 10 4l6.5 5.2V16a.8.8 0 0 1-.8.8H4.3a.8.8 0 0 1-.8-.8Z"/><path d="M8 16.8v-4.3h4v4.3"/></svg>
+        住宅IP <span class="count" id="navIps"></span>
+      </a>
+      <a href="#airports" data-view="airports">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.8 9.6 17 3.5l-4.6 13.2-3-5.3Z"/><path d="m9.4 11.4 7.6-7.9"/></svg>
+        机场订阅 <span class="count" id="navNodes"></span>
+      </a>
+    </nav>
+    <div class="rail-foot">
+      <span>交互原型 · 全部为示例数据</span>
+      <span>页面不联网，检测结果为模拟</span>
+    </div>
+  </aside>
+
+  <main>
+    <!-- 链路 -->
+    <section class="view" id="view-chains" aria-labelledby="h-chains">
+      <div class="view-head">
+        <div>
+          <h1 id="h-chains">链路</h1>
+          <p>一台 iPhone 对应一条链路：先连机场节点出境，再从固定的静态住宅IP落地。前置节点可以自动切换，落地IP始终不变。</p>
+        </div>
+        <div class="actions">
+          <button class="btn" type="button" data-act="check-all">全部检测</button>
+          <button class="btn primary" type="button" data-act="new-chain">新建链路</button>
+        </div>
+      </div>
+      <div class="panel summary" id="summary"></div>
+      <div class="chains-layout">
+        <ul class="panel chain-list" id="chainList" role="listbox" aria-label="链路列表"></ul>
+        <div class="panel detail" id="detail"></div>
+      </div>
+    </section>
+
+    <!-- 住宅IP -->
+    <section class="view" id="view-ips" aria-labelledby="h-ips" hidden>
+      <div class="view-head">
+        <div>
+          <h1 id="h-ips">住宅IP</h1>
+          <p>把供应商发来的内容整段粘贴进来，自动拆出 IP、端口、账号、密码。一次可以贴很多行，格式混在一起也行。</p>
+        </div>
+      </div>
+
+      <div class="panel ingest">
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <h2>智能粘贴</h2>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="hint">未注明协议时按</span>
+              <div class="seg" role="group" aria-label="默认协议">
+                <button type="button" data-proto="socks5" aria-pressed="true">SOCKS5</button>
+                <button type="button" data-proto="http" aria-pressed="false">HTTP</button>
+              </div>
+            </div>
+          </div>
+          <textarea id="paste" spellcheck="false" aria-label="粘贴住宅IP"></textarea>
+          <p class="hint">支持 <span class="mono">ip:端口:账号:密码</span>、<span class="mono">账号:密码@ip:端口</span>、<span class="mono">socks5://</span> 链接、小火箭 Base64 分享链接、空格或竖线分隔，以及「IP地址：… 端口：…」这类带标签的文本。</p>
+        </div>
+        <div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+            <h2>识别结果</h2>
+            <span class="hint" id="parseCount"></span>
+          </div>
+          <ul class="parsed" id="parsed"></ul>
+          <div class="fields" id="fields">
+            <div class="field wide">
+              <label>协议</label>
+              <div class="seg" role="group" aria-label="协议" id="fProto">
+                <button type="button" data-v="socks5" aria-pressed="true">SOCKS5</button>
+                <button type="button" data-v="http" aria-pressed="false">HTTP</button>
+                <button type="button" data-v="https" aria-pressed="false">HTTPS</button>
+              </div>
+            </div>
+            <div class="field"><label for="fHost">IP / 域名</label><input id="fHost" class="mono" autocomplete="off" spellcheck="false" placeholder="也可以直接把整串贴在这里"></div>
+            <div class="field"><label for="fPort">端口</label><input id="fPort" class="mono" inputmode="numeric" autocomplete="off"></div>
+            <div class="field"><label for="fUser">账户</label><input id="fUser" class="mono" autocomplete="off" spellcheck="false"></div>
+            <div class="field"><label for="fPass">密码</label><input id="fPass" class="mono" autocomplete="off" spellcheck="false"></div>
+            <div class="field"><label for="fRemark">备注</label><input id="fRemark" autocomplete="off" placeholder="如：洛杉矶 Comcast"></div>
+            <div class="field"><label for="fExpire">到期日</label><input id="fExpire" type="date"></div>
+          </div>
+          <div class="ingest-foot">
+            <span class="hint" id="ingestHint">加入后会自动检测地区、运营商、IP 类型和纯净度。</span>
+            <button class="btn primary" type="button" id="addIps">加入IP库</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>地址</th><th>地区 · 运营商</th><th>类型 · 纯净度</th><th>到期</th><th>绑定设备</th><th></th></tr></thead>
+            <tbody id="ipRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 机场 -->
+    <section class="view" id="view-airports" aria-labelledby="h-air" hidden>
+      <div class="view-head">
+        <div>
+          <h1 id="h-air">机场订阅</h1>
+          <p>机场节点只做前置跳板，负责把流量安全带出去。可以同时接入多家机场，前置组会跨机场故障切换。</p>
+        </div>
+      </div>
+      <div class="air-grid" id="airGrid"></div>
+      <div class="chips" id="regionChips" role="group" aria-label="按地区筛选"></div>
+      <div class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>节点</th><th>机场</th><th>协议</th><th>延迟</th><th>作为前置</th></tr></thead>
+            <tbody id="nodeRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="sheet-bg" id="sheetBg" hidden>
+  <div class="panel sheet" role="dialog" aria-modal="true" aria-labelledby="h-new">
+    <form id="newChainForm">
+      <h2 id="h-new">新建链路</h2>
+      <div class="fields">
+        <div class="field"><label for="nDevice">设备</label><input id="nDevice" required></div>
+        <div class="field"><label for="nPlatform">平台</label>
+          <select id="nPlatform"><option>TikTok</option><option>Instagram</option><option>Facebook</option><option>YouTube</option><option>X</option></select>
+        </div>
+        <div class="field wide"><label for="nHandle">账号</label><input id="nHandle" placeholder="@your.account" required></div>
+        <div class="field wide"><label for="nIp">落地住宅IP</label><select id="nIp" required></select>
+          <span class="hint" id="nIpHint">已经绑定到其他设备的 IP 不能再选，一个 IP 只给一台设备用。</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>前置节点</label>
+        <div class="opt-list">
+          <label class="opt"><input type="radio" name="front" value="auto" checked><span><b>自动</b><span class="d" style="display:block">取与住宅IP同国家的机场节点组成前置组，挂了自动切下一个。</span></span></label>
+          <label class="opt"><input type="radio" name="front" value="fixed"><span><b>固定节点</b><select id="nNode" style="display:block;margin-top:4px;max-width:100%"></select></span></label>
+        </div>
+      </div>
+      <div class="field">
+        <label>出口模式</label>
+        <div class="opt-list">
+          <label class="opt"><input type="radio" name="route" value="global" checked><span><b>全局</b><span class="d" style="display:block">手机所有流量都从住宅IP出去。最稳，推荐。</span></span></label>
+          <label class="opt"><input type="radio" name="route" value="split"><span><b>分流</b><span class="d" style="display:block">只有社媒域名走住宅IP，其他走机场。省住宅流量，但平台新增的域名可能漏掉。</span></span></label>
+        </div>
+      </div>
+      <div class="sheet-foot">
+        <button class="btn" type="button" data-act="close-sheet">取消</button>
+        <button class="btn primary" type="submit">创建并检测</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="parse-proxy.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  const $ = (s, el) => (el || document).querySelector(s);
+  const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  const DAY = 864e5;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const inDays = n => new Date(today.getTime() + n * DAY).toISOString().slice(0, 10);
+  const daysUntil = d => d ? Math.round((new Date(d + 'T00:00:00') - today) / DAY) : null;
+
+  const COUNTRY = { US: '美国', GB: '英国', JP: '日本', HK: '香港', SG: '新加坡' };
+
+  // ---------------- 示例数据 ----------------
+  const airports = [
+    { id: 'A', name: '机场 A', url: 'https://sub.airport-a.example/api/v1/client/subscribe?token=••••••••', used: 186.4, total: 500, expire: inDays(95), updated: '12 分钟前' },
+    { id: 'B', name: '机场 B', url: 'https://airport-b.example/link/••••••••?clash=3', used: 41.2, total: 200, expire: inDays(8), updated: '3 小时前' },
+  ];
+  const nodes = [
+    { id: 'a1', air: 'A', name: '日本 东京 01', cc: 'JP', type: 'vless', host: 'jp-tyo-01.airport-a.example', port: 443, ms: 62 },
+    { id: 'a2', air: 'A', name: '日本 大阪 02', cc: 'JP', type: 'trojan', host: 'jp-osa-02.airport-a.example', port: 443, ms: 71 },
+    { id: 'a3', air: 'A', name: '香港 01 IEPL', cc: 'HK', type: 'ss', host: 'hk-01.airport-a.example', port: 20001, ms: 38 },
+    { id: 'a4', air: 'A', name: '美国 洛杉矶 01', cc: 'US', type: 'vless', host: 'us-lax-01.airport-a.example', port: 443, ms: 158 },
+    { id: 'a5', air: 'A', name: '美国 圣何塞 02', cc: 'US', type: 'hysteria2', host: 'us-sjc-02.airport-a.example', port: 8443, ms: 149 },
+    { id: 'a6', air: 'A', name: '英国 伦敦 01', cc: 'GB', type: 'trojan', host: 'uk-lon-01.airport-a.example', port: 443, ms: 212 },
+    { id: 'b1', air: 'B', name: '美国 西雅图 01', cc: 'US', type: 'vmess', host: 'sea1.airport-b.example', port: 443, ms: 171 },
+    { id: 'b2', air: 'B', name: '新加坡 01', cc: 'SG', type: 'trojan', host: 'sg1.airport-b.example', port: 443, ms: 84 },
+    { id: 'b3', air: 'B', name: '英国 曼彻斯特 01', cc: 'GB', type: 'vmess', host: 'man1.airport-b.example', port: 443, ms: null },
+    { id: 'b4', air: 'B', name: '日本 东京 03', cc: 'JP', type: 'trojan', host: 'tyo3.airport-b.example', port: 443, ms: 66 },
+  ];
+  const ips = [
+    { id: 'r1', protocol: 'socks5', host: '203.0.113.24', port: 1080, username: 'la_user01', password: 'Xk9pQ2vd', cc: 'US', city: '洛杉矶', isp: 'Comcast', asn: 'AS7922', kind: '住宅', score: 92, expire: inDays(28), tz: 'America/Los_Angeles', lang: 'English (US)' },
+    { id: 'r2', protocol: 'socks5', host: '198.51.100.7', port: 8000, username: 'ny_home', password: '77aa21Kc', cc: 'US', city: '纽约', isp: 'Verizon', asn: 'AS701', kind: '住宅', score: 88, expire: inDays(5), tz: 'America/New_York', lang: 'English (US)' },
+    { id: 'r3', protocol: 'socks5', host: '192.0.2.55', port: 45001, username: 'tk_uk', password: 'Zz8812mm', cc: 'GB', city: '伦敦', isp: 'BT', asn: 'AS2856', kind: '住宅', score: 90, expire: inDays(46), tz: 'Europe/London', lang: 'English (UK)' },
+    { id: 'r4', protocol: 'http', host: '203.0.113.90', port: 1080, username: 'jp_res', password: 'q1w2e3r4', cc: 'JP', city: '大阪', isp: 'NTT OCN', asn: 'AS4713', kind: '住宅', score: 85, expire: inDays(35), tz: 'Asia/Tokyo', lang: '日本語' },
+    { id: 'r5', protocol: 'socks5', host: '198.51.100.20', port: 6000, username: 'dal_01', password: 'pW7yy1Tt', cc: 'US', city: '达拉斯', isp: 'AT&T', asn: 'AS7018', kind: '住宅', score: 81, expire: inDays(23), tz: 'America/Chicago', lang: 'English (US)' },
+    { id: 'r6', protocol: 'socks5', host: '203.0.113.12', port: 2080, username: 'mia_07', password: 'Mm0Qa91e', cc: 'US', city: '迈阿密', isp: 'DigitalOcean', asn: 'AS14061', kind: '机房', score: 41, expire: inDays(60), tz: 'America/New_York', lang: 'English (US)' },
+  ];
+  const chains = [
+    { id: 'c1', device: 'iPhone 01', accounts: [{ p: 'TikTok', h: '@shop.la.daily' }, { p: 'Instagram', h: '@la.daily' }], ipId: 'r1', front: { mode: 'auto' }, route: 'global', token: 'k3f9a1c2e8', check: { exit: '203.0.113.24', ago: 3, land: 124 } },
+    { id: 'c2', device: 'iPhone 02', accounts: [{ p: 'TikTok', h: '@nyc.finds' }], ipId: 'r2', front: { mode: 'fixed', nodeId: 'a5' }, route: 'global', token: 'p0d7c55b1a', check: { exit: '198.51.100.7', ago: 4, land: 71 } },
+    { id: 'c3', device: 'iPhone 03', accounts: [{ p: 'TikTok', h: '@uk.home.picks' }], ipId: 'r3', front: { mode: 'auto' }, route: 'split', token: 'x81be02f4c', check: { exit: '192.0.2.55', ago: 6, land: 18 } },
+    { id: 'c4', device: 'iPhone 04', accounts: [{ p: 'Instagram', h: '@osaka.eats' }], ipId: 'r4', front: { mode: 'auto' }, route: 'global', token: 'n42aa9d0e7', check: { exit: '203.0.113.90', ago: 2, land: 9 } },
+    { id: 'c5', device: 'iPhone 05', accounts: [{ p: 'TikTok', h: '@tx.deals' }], ipId: 'r5', front: { mode: 'auto' }, route: 'global', token: 'q9e1f7b3d2', check: { exit: '198.51.100.99', ago: 1, land: 64 } },
+  ];
+
+  const SAMPLE = [
+    '203.0.113.61:1080:mia_res07:Tq83kdLx',
+    'tk_uk2:Wm29xa@192.0.2.140:45002',
+    'socks5://jp_res2:k2k2k2@203.0.113.150:1080#JP-Kobe',
+    '198.51.100.88 6000 dal_02 pW7yy1',
+    '',
+    'IP地址：198.51.100.201',
+    '端口：9595',
+    '账号：cxr_0927',
+    '密码：Hh7kL2',
+    '到期时间：' + inDays(30),
+  ].join('\n');
+
+  const state = {
+    view: 'chains',
+    selected: 'c1',
+    tab: 'stash',
+    showPass: false,
+    region: 'all',
+    defaultProto: 'socks5',
+    paste: { records: [], errors: [], sel: 0 },
+    fresh: new Set(),
+  };
+
+  // ---------------- 推导 ----------------
+  const ipById = id => ips.find(r => r.id === id);
+  const nodeById = id => nodes.find(n => n.id === id);
+  const airById = id => airports.find(a => a.id === id);
+  const chainOfIp = id => chains.find(c => c.ipId === id);
+  const alive = n => n.ms != null;
+
+  function frontNodes(c) {
+    if (c.front.mode === 'fixed') return [nodeById(c.front.nodeId)];
+    const ip = ipById(c.ipId);
+    let list = nodes.filter(n => ip.cc && n.cc === ip.cc);
+    if (!list.length) list = nodes.filter(alive);
+    return list.slice().sort((a, b) => (a.ms == null) - (b.ms == null) || (a.ms || 0) - (b.ms || 0)).slice(0, 4);
+  }
+  const frontGroupName = c => c.front.mode === 'fixed' ? '前置·' + nodeById(c.front.nodeId).name : '前置-' + (ipById(c.ipId).cc || 'AUTO');
+  const landName = ip => '落地·' + (ip.cc || '') + ' ' + (ip.city || ip.host);
+
+  function evaluate(c) {
+    const ip = ipById(c.ipId);
+    const fronts = frontNodes(c);
+    const up = fronts.filter(alive);
+    const issues = [];
+    let status = 'ok';
+    const bump = s => { if (s === 'bad' || (s === 'warn' && status === 'ok')) status = s; };
+    if (!c.check) status = 'pending';
+    if (c.check && c.check.exit !== ip.host) { issues.push({ s: 'bad', t: '出口IP ' + c.check.exit + ' 与绑定的 ' + ip.host + ' 不一致' }); bump('bad'); }
+    if (!up.length) { issues.push({ s: 'bad', t: '前置节点全部不可用' }); bump('bad'); }
+    if (ip.kind === '机房') { issues.push({ s: 'warn', t: '落地IP 是机房IP，不建议用于社媒' }); bump('warn'); }
+    const d = daysUntil(ip.expire);
+    if (d != null && d <= 7) { issues.push({ s: 'warn', t: '住宅IP ' + d + ' 天后到期' }); bump('warn'); }
+    if (up.length && up.length < fronts.length) issues.push({ s: 'info', t: '前置 ' + up.length + '/' + fronts.length + ' 可用，已自动切换' });
+    return { ip, fronts, up, issues, status };
+  }
+
+  const STATUS_TEXT = { ok: '正常', warn: '需注意', bad: '故障', pending: '待检测' };
+  const pill = s => '<span class="pill ' + s + '">' + STATUS_TEXT[s] + '</span>';
+
+  // ---------------- 链路 ----------------
+  function renderSummary() {
+    const ev = chains.map(evaluate);
+    const n = s => ev.filter(e => e.status === s).length;
+    const expiring = ips.filter(r => { const d = daysUntil(r.expire); return d != null && d <= 7; }).length;
+    $('#summary').innerHTML =
+      '<div class="stat"><span class="num">' + chains.length + '</span><span class="lbl">条链路</span></div>' +
+      '<div class="stat ok"><span class="num">' + n('ok') + '</span><span class="lbl">正常</span></div>' +
+      '<div class="stat warn"><span class="num">' + n('warn') + '</span><span class="lbl">需注意</span></div>' +
+      '<div class="stat bad"><span class="num">' + n('bad') + '</span><span class="lbl">故障</span></div>' +
+      '<div class="stat warn"><span class="num">' + expiring + '</span><span class="lbl">个住宅IP 7 天内到期</span></div>';
+    $('#navChains').textContent = chains.length;
+    $('#navIps').textContent = ips.length;
+    $('#navNodes').textContent = nodes.length;
+  }
+
+  function hopFront(c, e) {
+    const label = c.front.mode === 'fixed' ? '前置 · 固定' : '前置 · 自动 ' + e.up.length + '/' + e.fronts.length;
+    const value = e.up.length ? e.up[0].name : '无可用节点';
+    return '<div class="hop front' + (e.up.length ? '' : ' down') + '"><span class="k">' + label + '</span><span class="v">' + esc(value) + '</span></div>';
+  }
+  function hopLand(ip) {
+    return '<div class="hop land"><span class="k">落地 · ' + esc(ip.kind || '住宅IP') + '</span><span class="v"><span class="ip">' + esc(ip.host) + '</span> ' + esc(ip.city || '') + '</span></div>';
+  }
+
+  function renderChains() {
+    renderSummary();
+    $('#chainList').innerHTML = chains.map(c => {
+      const e = evaluate(c);
+      const top = e.issues.find(i => i.s !== 'info');
+      const foot = c.check
+        ? (top ? '<div class="row-foot ' + top.s + '">' + esc(top.t) + '</div>'
+               : '<div class="row-foot">出口 <span class="ip">' + esc(c.check.exit) + '</span> 与绑定一致 · ' + c.check.ago + ' 分钟前检测</div>')
+        : '<div class="row-foot">正在检测…</div>';
+      const broken = e.status === 'bad';
+      const ms = e.up.length ? (e.up[0].ms + (c.check ? c.check.land : 0)) + 'ms' : '断开';
+      return '<li class="chain-row" role="option" tabindex="0" data-id="' + c.id + '" aria-selected="' + (c.id === state.selected) + '">' +
+        '<div class="row-top"><span class="dev">' + esc(c.device) + '</span><span class="accts">' + c.accounts.map(a => esc(a.p + ' ' + a.h)).join(' · ') + '</span>' + pill(e.status) + '</div>' +
+        '<div class="hops">' + hopFront(c, e) + '<div class="wire' + (broken ? ' broken' : '') + '"><span>' + ms + '</span></div>' + hopLand(e.ip) + '</div>' +
+        foot + '</li>';
+    }).join('');
+    renderDetail();
+  }
+
+  function checksFor(c, e) {
+    const ip = e.ip, out = [];
+    if (!c.check) out.push({ s: 'info', t: '正在检测出口IP', d: '通过整条链路访问 IP 检测接口' });
+    else if (c.check.exit === ip.host) out.push({ s: 'ok', t: '出口IP 与绑定一致', d: '经链路访问检测接口，返回 ' + c.check.exit });
+    else out.push({ s: 'bad', t: '出口IP 不一致', d: '检测到 ' + c.check.exit + '，绑定的是 ' + ip.host + '。供应商可能换了线路，先联系供应商或换绑，别让账号在这个IP上登录。' });
+    if (ip.kind) out.push(ip.kind === '机房'
+      ? { s: 'bad', t: 'IP 类型：机房', d: ip.asn + ' ' + ip.isp + ' 属于数据中心网段，社媒容易识别' }
+      : { s: 'ok', t: 'IP 类型：' + ip.kind, d: ip.asn + ' ' + ip.isp + ' · 纯净度 ' + ip.score });
+    else out.push({ s: 'info', t: 'IP 类型待检测', d: '上线后查询 ASN、运营商和风险分' });
+    out.push(e.up.length === e.fronts.length
+      ? { s: 'ok', t: '前置节点 ' + e.up.length + '/' + e.fronts.length + ' 可用', d: e.fronts.map(n => n.name).join('、') }
+      : e.up.length ? { s: 'warn', t: '前置节点 ' + e.up.length + '/' + e.fronts.length + ' 可用', d: '已跳过：' + e.fronts.filter(n => !alive(n)).map(n => n.name).join('、') + '。落地IP 不受影响。' }
+      : { s: 'bad', t: '前置节点全部不可用', d: '检查机场订阅是否过期，或换一个地区的前置' });
+    out.push({ s: 'ok', t: '断线不回落', d: '「社媒出口」组里只有这一个落地，链路断了就断网，不会漏出机场IP或本机IP' });
+    out.push({ s: 'ok', t: 'DNS 与 IPv6', d: 'fake-ip 模式，域名由远端解析；IPv6 已关闭' });
+    const d = daysUntil(ip.expire);
+    if (d != null) out.push(d <= 7 ? { s: 'warn', t: d + ' 天后到期', d: '到期日 ' + ip.expire + '，续费后 IP 不变，账号不用动' } : { s: 'ok', t: '有效期还有 ' + d + ' 天', d: '到期日 ' + ip.expire });
+    if (ip.tz) out.push({ s: 'info', t: '手机设置请对齐', d: '时区 ' + ip.tz + ' · 语言 ' + ip.lang + ' · 地区 ' + COUNTRY[ip.cc] + '。这几项在 iPhone 设置里手动改，面板检测不到。' });
+    return out;
+  }
+
+  function renderDetail() {
+    const c = chains.find(x => x.id === state.selected) || chains[0];
+    if (!c) { $('#detail').innerHTML = '<section><p class="hint">还没有链路。</p></section>'; return; }
+    const e = evaluate(c);
+    const ip = e.ip;
+    const f = e.up[0];
+    const broken = e.status === 'bad';
+    const icon = { ok: '✓', warn: '!', bad: '×', info: 'i' };
+    $('#detail').innerHTML =
+      '<section>' +
+        '<div class="detail-head"><h2>' + esc(c.device) + '</h2>' + pill(e.status) +
+          '<div class="actions"><button class="btn small" type="button" data-act="check" data-id="' + c.id + '">立即检测</button></div></div>' +
+        '<div class="acct-list">' + c.accounts.map(a => '<span class="acct"><b>' + esc(a.p) + '</b>' + esc(a.h) + '</span>').join('') + '</div>' +
+      '</section>' +
+      '<section aria-label="链路">' +
+        '<div class="route">' +
+          '<div class="station"><span class="k">手机</span><span class="v">' + esc(c.device) + '</span><span class="s">' + (c.route === 'global' ? '全局' : '分流') + '</span></div>' +
+          '<div class="wire"><span>' + (f ? f.ms + 'ms' : '—') + '</span></div>' +
+          '<div class="station front"><span class="k">前置 · 机场</span><span class="v">' + esc(f ? f.name : '无可用节点') + '</span><span class="s">' + (f ? esc(airById(f.air).name) + ' · ' + f.type : '') + '</span></div>' +
+          '<div class="wire' + (broken ? ' broken' : '') + '"><span>' + (c.check ? c.check.land + 'ms' : '—') + '</span></div>' +
+          '<div class="station land"><span class="k">落地 · 住宅IP</span><span class="v ip">' + esc(ip.host) + '</span><span class="s">' + esc([COUNTRY[ip.cc], ip.city, ip.isp].filter(Boolean).join(' · ') || ip.protocol.toUpperCase()) + '</span></div>' +
+          '<div class="wire"></div>' +
+          '<div class="station"><span class="k">平台看到</span><span class="v ip">' + esc(c.check ? c.check.exit : '…') + '</span><span class="s">' + esc(c.accounts.map(a => a.p).filter((p, i, arr) => arr.indexOf(p) === i).join(' / ')) + '</span></div>' +
+        '</div>' +
+      '</section>' +
+      '<section aria-label="环境检查"><span class="eyebrow">环境检查</span><ul class="checks">' +
+        checksFor(c, e).map(k => '<li class="' + k.s + '"><span class="ic" aria-hidden="true">' + icon[k.s] + '</span><div><div class="t">' + esc(k.t) + '</div><div class="d">' + esc(k.d) + '</div></div></li>').join('') +
+      '</ul></section>' +
+      '<section aria-label="导入到手机">' +
+        '<span class="eyebrow">导入到手机</span>' +
+        '<div class="tabs" role="tablist">' +
+          [['stash', 'Stash / Clash Meta'], ['surge', 'Surge'], ['rocket', '小火箭 / Loon']].map(t =>
+            '<button type="button" role="tab" data-tab="' + t[0] + '" aria-selected="' + (state.tab === t[0]) + '">' + t[1] + '</button>').join('') +
+        '</div>' +
+        exportPane(c, e) +
+      '</section>';
+    renderQr(c, e);
+  }
+
+  // ---------------- 配置生成 ----------------
+  const q = s => '"' + String(s).replace(/"/g, '\\"') + '"';
+  const pw = s => state.showPass ? s : '••••••••';
+
+  const SOCIAL = ['tiktok.com', 'tiktokv.com', 'tiktokcdn.com', 'byteoversea.com', 'ibytedtos.com', 'musical.ly', 'instagram.com', 'cdninstagram.com', 'facebook.com', 'fbcdn.net', 'youtube.com', 'googlevideo.com', 'x.com', 'twimg.com'];
+
+  function clashConfig(c, e) {
+    const ip = e.ip;
+    const group = frontGroupName(c);
+    const land = landName(ip);
+    const L = [];
+    L.push('# ' + c.device + ' · 由落地链路台生成 · ' + inDays(0));
+    L.push('# 手机 → 前置(机场) → 落地(住宅IP) → 平台');
+    L.push('mixed-port: 7890');
+    L.push('ipv6: false');
+    L.push('dns:');
+    L.push('  enable: true');
+    L.push('  ipv6: false');
+    L.push('  enhanced-mode: fake-ip');
+    L.push('  nameserver: [https://1.1.1.1/dns-query, https://8.8.8.8/dns-query]');
+    L.push('');
+    L.push('proxies:');
+    L.push('  # 前置：机场节点，完整参数由面板从订阅同步，这里只列关键字段');
+    e.fronts.forEach(n => L.push('  - {name: ' + q('前置·' + n.name) + ', type: ' + n.type + ', server: ' + n.host + ', port: ' + n.port + '}'));
+    L.push('  # 落地：静态住宅IP，经前置拨号');
+    L.push('  - name: ' + q(land));
+    L.push('    type: ' + (ip.protocol === 'socks5' ? 'socks5' : 'http'));
+    L.push('    server: ' + ip.host);
+    L.push('    port: ' + ip.port);
+    if (ip.username) L.push('    username: ' + q(ip.username));
+    if (ip.password) L.push('    password: ' + q(pw(ip.password)));
+    if (ip.protocol === 'https') L.push('    tls: true');
+    if (ip.protocol === 'socks5') L.push('    udp: true');
+    L.push('    dialer-proxy: ' + q(group));
+    L.push('');
+    L.push('proxy-groups:');
+    if (c.front.mode === 'auto') {
+      L.push('  - name: ' + q(group));
+      L.push('    type: fallback   # 前置坏了切下一个，落地IP不变');
+      L.push('    url: https://www.gstatic.com/generate_204');
+      L.push('    interval: 300');
+      L.push('    proxies: [' + e.fronts.map(n => q('前置·' + n.name)).join(', ') + ']');
+    }
+    L.push('  - name: "社媒出口"');
+    L.push('    type: select');
+    L.push('    proxies: [' + q(land) + ']   # 只放落地，断线不回落');
+    L.push('');
+    L.push('rules:');
+    if (c.route === 'split') {
+      SOCIAL.forEach(d => L.push('  - DOMAIN-SUFFIX,' + d + ',社媒出口'));
+      L.push('  - GEOIP,CN,DIRECT');
+      L.push('  - MATCH,' + group);
+    } else {
+      L.push('  - MATCH,社媒出口');
+    }
+    return L.join('\n');
+  }
+
+  function surgeConfig(c, e) {
+    const ip = e.ip;
+    const land = landName(ip);
+    const supported = e.fronts.filter(n => n.type !== 'vless');
+    const skipped = e.fronts.filter(n => n.type === 'vless');
+    const under = supported.find(alive);
+    const L = [];
+    L.push('# ' + c.device + ' · 托管配置，面板改了会自动更新');
+    L.push('[General]');
+    L.push('ipv6 = false');
+    L.push('');
+    L.push('[Proxy]');
+    if (skipped.length) L.push('# Surge 不支持 VLESS，已跳过：' + skipped.map(n => n.name).join('、'));
+    supported.forEach(n => L.push('前置·' + n.name + ' = ' + n.type + ', ' + n.host + ', ' + n.port + ', …'));
+    const auth = ip.username ? ', ' + ip.username + ', ' + pw(ip.password) : '';
+    const kind = ip.protocol === 'socks5' ? 'socks5' : ip.protocol;
+    L.push(land + ' = ' + kind + ', ' + ip.host + ', ' + ip.port + auth + (under ? ', underlying-proxy=前置·' + under.name : ''));
+    L.push('');
+    L.push('[Proxy Group]');
+    L.push('社媒出口 = select, ' + land);
+    L.push('');
+    L.push('[Rule]');
+    if (c.route === 'split') {
+      SOCIAL.forEach(d => L.push('DOMAIN-SUFFIX,' + d + ',社媒出口'));
+      L.push('GEOIP,CN,DIRECT');
+      L.push('FINAL,' + (under ? '前置·' + under.name : 'DIRECT'));
+    } else {
+      L.push('FINAL,社媒出口');
+    }
+    if (!under) L.unshift('# 没有 Surge 可用的前置节点，请换一个前置');
+    return L.join('\n');
+  }
+
+  function b64(s) {
+    try { return btoa(unescape(encodeURIComponent(s))); } catch (err) { return ''; }
+  }
+  function rocketLink(ip) {
+    const scheme = ip.protocol === 'socks5' ? 'socks' : ip.protocol;
+    const auth = ip.username ? ip.username + ':' + ip.password + '@' : '';
+    return scheme + '://' + b64(auth + ip.host + ':' + ip.port) + '#' + encodeURIComponent(landName(ip).replace('落地·', ''));
+  }
+
+  function highlight(text) {
+    return text.split('\n').map(line => {
+      const h = esc(line);
+      if (/^\s*#/.test(line)) return '<span class="c">' + h + '</span>';
+      if (/dialer-proxy|underlying-proxy/.test(line)) return h.replace(/(dialer-proxy|underlying-proxy)/, '<span class="l">$1</span>');
+      return h.replace(/^(\s*-?\s*)([a-z-]+)(:)/i, '$1<span class="k">$2</span>$3').replace(/^\[(.+)\]$/, '<span class="k">[$1]</span>');
+    }).join('\n');
+  }
+
+  function subUrl(c, target) {
+    return 'https://panel.example.com/sub/' + c.token + '?target=' + target;
+  }
+
+  function exportPane(c, e) {
+    const toggle = '<div class="seg" role="group" aria-label="密码显示"><button type="button" data-act="pass" aria-pressed="' + !state.showPass + '">隐藏密码</button><button type="button" data-act="pass" aria-pressed="' + state.showPass + '">显示</button></div>';
+    if (state.tab === 'rocket') {
+      const link = rocketLink(e.ip);
+      const f = e.up[0];
+      return '<div class="export-grid">' +
+        '<div style="display:grid;gap:10px;min-width:0">' +
+          '<div class="sub-url"><code>' + esc(link) + '</code><button class="btn small" type="button" data-copy="' + esc(link) + '">复制</button></div>' +
+          '<div class="export-note">小火箭和 Loon 在 App 里手动建代理链，面板提供落地节点和顺序：' +
+            '<ol><li>扫右侧二维码，或复制链接导入住宅IP节点。识别不了就手动填 IP、端口、账号、密码。</li>' +
+            '<li>在「代理链 / 链式代理」里依次加入：先机场节点 <b>' + esc(f ? f.name : '（先恢复前置节点）') + '</b>，再住宅IP <b class="ip">' + esc(e.ip.host) + '</b>。</li>' +
+            '<li>全局路由选「代理」，选中这条代理链。</li></ol></div>' +
+          '<p class="hint">想让任何客户端都只导入一个节点，可以用第二阶段的「中转模式」：面板服务器替手机完成两跳。</p>' +
+        '</div>' +
+        '<div class="qr" id="qr" aria-label="住宅IP节点二维码"></div>' +
+      '</div>';
+    }
+    const target = state.tab === 'surge' ? 'surge' : 'stash';
+    const cfg = state.tab === 'surge' ? surgeConfig(c, e) : clashConfig(c, e);
+    const url = subUrl(c, target);
+    return '<div class="export-grid">' +
+      '<div style="display:grid;gap:8px;min-width:0">' +
+        '<div class="sub-url"><code>' + esc(url) + '</code><button class="btn small" type="button" data-copy="' + esc(url) + '">复制</button></div>' +
+        '<p class="export-note">' + (state.tab === 'surge'
+          ? 'Surge 用 underlying-proxy 指定前置。前置固定为当前最快的可用节点，面板检测到它失效会更新托管配置。'
+          : 'Stash 和 Clash Meta 内核都支持 dialer-proxy。订阅里只有一个出口，前置组自动切换。') + '</p>' +
+      '</div>' +
+      '<div class="qr" id="qr" aria-label="订阅二维码"></div>' +
+    '</div>' +
+    '<div class="code-tools"><span class="hint">配置预览</span><div class="actions">' + toggle +
+      '<button class="btn small" type="button" data-act="copy-config">复制配置</button></div></div>' +
+    '<div class="code-wrap"><pre class="config" id="configPre">' + highlight(cfg) + '</pre></div>';
+  }
+
+  function renderQr(c, e) {
+    const el = $('#qr');
+    if (!el) return;
+    const text = state.tab === 'rocket' ? rocketLink(e.ip) : subUrl(c, state.tab === 'surge' ? 'surge' : 'stash');
+    if (typeof qrcode !== 'function') { el.textContent = '二维码'; return; }
+    try {
+      const qr = qrcode(0, 'M');
+      qr.addData(text);
+      qr.make();
+      el.innerHTML = qr.createSvgTag({ cellSize: 3, margin: 2, scalable: true });
+    } catch (err) { el.textContent = '二维码'; }
+  }
+
+  // ---------------- 住宅IP ----------------
+  function scoreCell(r) {
+    if (r.score == null) return '<span class="hint">待检测</span>';
+    const cls = r.score >= 80 ? '' : r.score >= 60 ? ' mid' : ' low';
+    return esc(r.kind) + ' <span class="score' + cls + '"><span class="bar"><i style="width:' + r.score + '%"></i></span>' + r.score + '</span>';
+  }
+
+  function renderIps() {
+    $('#ipRows').innerHTML = ips.map(r => {
+      const d = daysUntil(r.expire);
+      const c = chainOfIp(r.id);
+      const exp = d == null ? '<span class="hint">未填写</span>' : esc(r.expire) + '<span class="sub" style="color:' + (d <= 7 ? 'var(--warn)' : 'var(--muted)') + '">' + (d < 0 ? '已过期' : d + ' 天后') + '</span>';
+      const where = r.cc ? '<span class="tag cc">' + r.cc + '</span> ' + esc(r.city) + '<span class="sub">' + esc(r.isp + ' ' + r.asn) + '</span>' : '<span class="hint">待检测</span>' + (r.remark ? '<span class="sub">' + esc(r.remark) + '</span>' : '');
+      return '<tr' + (state.fresh.has(r.id) ? ' class="fresh"' : '') + '>' +
+        '<td><span class="ip">' + esc(r.host) + ':' + r.port + '</span><span class="sub">' + r.protocol.toUpperCase() + (r.username ? ' · ' + esc(r.username) : ' · 无认证') + '</span></td>' +
+        '<td>' + where + '</td>' +
+        '<td>' + scoreCell(r) + '</td>' +
+        '<td>' + exp + '</td>' +
+        '<td>' + (c ? esc(c.device) : '<span class="hint">空闲</span>') + '</td>' +
+        '<td><button class="btn small" type="button" data-act="ip-check" data-id="' + r.id + '">检测</button></td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  const F = { host: '#fHost', port: '#fPort', username: '#fUser', password: '#fPass', remark: '#fRemark', expire: '#fExpire' };
+
+  function setProto(v) {
+    $$('#fProto button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+  }
+  function getProto() {
+    const b = $('#fProto button[aria-pressed="true"]');
+    return b ? b.dataset.v : 'socks5';
+  }
+
+  function fillFields(r, flash) {
+    Object.keys(F).forEach(k => {
+      const el = $(F[k]);
+      const v = r ? (r[k] == null ? '' : String(r[k])) : '';
+      if (el.value === v) return;
+      el.value = v;
+      if (flash && v) { el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+    });
+    setProto(r ? r.protocol : state.defaultProto);
+  }
+
+  function runParse(flash) {
+    const res = ProxyParser.parse($('#paste').value, { defaultProtocol: state.defaultProto });
+    const prev = state.paste.records[state.paste.sel];
+    state.paste = { records: res.records, errors: res.errors, sel: Math.min(state.paste.sel, Math.max(0, res.records.length - 1)) };
+    const cur = state.paste.records[state.paste.sel];
+    renderParsed();
+    const changed = !prev || !cur || prev.host !== cur.host || prev.port !== cur.port || prev.username !== cur.username || prev.password !== cur.password;
+    if (changed || !cur) fillFields(cur, flash);
+  }
+
+  function renderParsed() {
+    const { records, errors, sel } = state.paste;
+    $('#parseCount').textContent = records.length ? '识别出 ' + records.length + ' 个' + (errors.length ? '，' + errors.length + ' 行没认出' : '') : (errors.length ? errors.length + ' 行没认出' : '');
+    const html = records.map((r, i) =>
+      '<li role="option" tabindex="0" data-i="' + i + '" aria-selected="' + (i === sel) + '">' +
+        '<div class="fmt"><span class="n">#' + (i + 1) + '</span><span>' + esc(r.format) + '</span><span class="tag">' + r.protocol.toUpperCase() + (r.protocolGuessed ? ' · 默认' : '') + '</span></div>' +
+        '<div class="toks"><span class="tok"><i>IP</i>' + esc(r.host) + '</span><span class="tok"><i>端口</i>' + r.port + '</span>' +
+          (r.username ? '<span class="tok"><i>账户</i>' + esc(r.username) + '</span>' : '') +
+          (r.password ? '<span class="tok"><i>密码</i>' + esc(r.password) + '</span>' : '') +
+          (r.expire ? '<span class="tok"><i>到期</i>' + esc(r.expire) + '</span>' : '') +
+          (r.remark ? '<span class="tok"><i>备注</i>' + esc(r.remark) + '</span>' : '') + '</div>' +
+        r.warnings.map(w => '<div class="warn-line">' + esc(w) + '</div>').join('') +
+      '</li>').join('') +
+      errors.map(er => '<li class="err"><div class="fmt">没认出：' + esc(er.error) + '</div><div class="toks"><span class="tok">' + esc(er.raw.trim().slice(0, 60)) + '</span></div></li>').join('');
+    $('#parsed').innerHTML = html || '<li class="err"><div class="fmt" style="color:var(--muted)">粘贴后这里会显示识别结果，也可以直接在下面手动填写。</div></li>';
+    const n = records.length;
+    $('#addIps').textContent = n > 1 ? '全部加入IP库（' + n + ' 个）' : '加入IP库';
+  }
+
+  function recordFromFields() {
+    const port = parseInt($('#fPort').value, 10);
+    return {
+      protocol: getProto(), host: $('#fHost').value.trim(), port: isNaN(port) ? '' : port,
+      username: $('#fUser').value.trim(), password: $('#fPass').value, remark: $('#fRemark').value.trim(), expire: $('#fExpire').value,
+    };
+  }
+
+  function syncFieldsToRecord() {
+    const r = state.paste.records[state.paste.sel];
+    if (!r) return;
+    Object.assign(r, recordFromFields());
+    renderParsed();
+  }
+
+  function addIps() {
+    let list = state.paste.records.slice();
+    if (!list.length) {
+      const r = recordFromFields();
+      if (!r.host || !(r.port >= 1 && r.port <= 65535)) { toast('先填好 IP 和端口'); $('#fHost').focus(); return; }
+      list = [r];
+    }
+    let added = 0, dup = 0;
+    state.fresh = new Set();
+    list.forEach(r => {
+      if (ips.some(x => x.host === r.host && x.port === r.port && x.username === r.username)) { dup++; return; }
+      const id = 'r' + Date.now().toString(36) + added;
+      ips.push({ id, protocol: r.protocol, host: r.host, port: r.port, username: r.username, password: r.password, remark: r.remark, expire: r.expire || '', cc: '', city: '', isp: '', asn: '', kind: '', score: null });
+      state.fresh.add(id);
+      added++;
+    });
+    $('#paste').value = '';
+    state.paste = { records: [], errors: [], sel: 0 };
+    renderParsed();
+    fillFields(null, false);
+    renderIps();
+    renderSummary();
+    toast(added ? '已加入 ' + added + ' 个住宅IP' + (dup ? '，跳过 ' + dup + ' 个重复' : '') + '。上线后会自动检测地区和类型。' : '都已经在IP库里了');
+  }
+
+  // ---------------- 机场 ----------------
+  function renderAirports() {
+    $('#airGrid').innerHTML = airports.map(a => {
+      const n = nodes.filter(x => x.air === a.id);
+      const d = daysUntil(a.expire);
+      return '<div class="panel air">' +
+        '<div class="air-top"><h3>' + esc(a.name) + '</h3><button class="btn small" type="button" data-act="air-sync" data-id="' + a.id + '">更新</button></div>' +
+        '<code>' + esc(a.url) + '</code>' +
+        '<div class="meter" title="已用流量"><i style="width:' + (a.used / a.total * 100).toFixed(1) + '%"></i></div>' +
+        '<div class="air-stats">' +
+          '<div><b>' + a.used + ' / ' + a.total + '</b>GB 已用</div>' +
+          '<div class="' + (d <= 10 ? 'warn' : '') + '"><b>' + d + ' 天</b>后到期</div>' +
+          '<div><b>' + n.filter(alive).length + ' / ' + n.length + '</b>节点在线</div>' +
+        '</div>' +
+        '<span class="hint">' + esc(a.updated) + '同步 · 流量和到期来自订阅响应头</span>' +
+      '</div>';
+    }).join('') +
+    '<div class="panel air add"><span class="eyebrow">添加机场订阅</span><form id="airForm"><input id="airUrl" placeholder="粘贴订阅链接" aria-label="订阅链接" spellcheck="false"><button class="btn" type="submit">添加</button></form>' +
+    '<span class="hint">支持 Clash YAML 和 Base64 节点列表（vmess / vless / trojan / ss / hysteria2）。</span></div>';
+
+    const regions = ['all'].concat(Array.from(new Set(nodes.map(n => n.cc))));
+    $('#regionChips').innerHTML = regions.map(r => '<button type="button" data-region="' + r + '" aria-pressed="' + (state.region === r) + '">' + (r === 'all' ? '全部' : COUNTRY[r]) + '</button>').join('');
+
+    const max = 250;
+    $('#nodeRows').innerHTML = nodes.filter(n => state.region === 'all' || n.cc === state.region).map(n => {
+      const used = chains.filter(c => frontNodes(c).some(x => x.id === n.id)).length;
+      const lat = alive(n)
+        ? '<span class="lat"><span class="bar"><i style="width:' + Math.min(100, n.ms / max * 100) + '%"></i></span>' + n.ms + ' ms</span>'
+        : '<span class="lat dead">超时</span>';
+      return '<tr><td><span class="tag cc">' + n.cc + '</span> ' + esc(n.name) + '</td><td>' + esc(airById(n.air).name) + '</td><td class="mono">' + n.type + '</td><td>' + lat + '</td><td>' + (used ? used + ' 条链路' : '<span class="hint">—</span>') + '</td></tr>';
+    }).join('');
+  }
+
+  // ---------------- 新建链路 ----------------
+  function openSheet() {
+    const nextNo = String(chains.length + 1).padStart(2, '0');
+    $('#nDevice').value = 'iPhone ' + nextNo;
+    $('#nHandle').value = '';
+    $('#nIp').innerHTML = ips.map(r => {
+      const c = chainOfIp(r.id);
+      const label = r.host + ':' + r.port + '  ' + (r.cc ? COUNTRY[r.cc] + ' ' + r.city : '待检测') + (r.kind === '机房' ? '  （机房IP，不推荐）' : '') + (c ? '  — 已绑定 ' + c.device : '');
+      return '<option value="' + r.id + '"' + (c ? ' disabled' : '') + '>' + esc(label) + '</option>';
+    }).join('');
+    const firstFree = ips.find(r => !chainOfIp(r.id) && r.kind !== '机房') || ips.find(r => !chainOfIp(r.id));
+    if (firstFree) $('#nIp').value = firstFree.id;
+    $('#nNode').innerHTML = nodes.filter(alive).map(n => '<option value="' + n.id + '">' + esc(n.name + ' · ' + airById(n.air).name + ' · ' + n.ms + 'ms') + '</option>').join('');
+    $('#sheetBg').hidden = false;
+    $('#nHandle').focus();
+  }
+  function closeSheet() { $('#sheetBg').hidden = true; }
+
+  function createChain(ev) {
+    ev.preventDefault();
+    const ipId = $('#nIp').value;
+    if (!ipId || chainOfIp(ipId)) { toast('没有空闲的住宅IP，先去「住宅IP」里加一个'); return; }
+    const frontMode = $('input[name="front"]:checked').value;
+    const c = {
+      id: 'c' + Date.now().toString(36),
+      device: $('#nDevice').value.trim() || 'iPhone',
+      accounts: [{ p: $('#nPlatform').value, h: $('#nHandle').value.trim() }],
+      ipId,
+      front: frontMode === 'fixed' ? { mode: 'fixed', nodeId: $('#nNode').value } : { mode: 'auto' },
+      route: $('input[name="route"]:checked').value,
+      token: Math.random().toString(16).slice(2, 12),
+      check: null,
+    };
+    chains.push(c);
+    state.selected = c.id;
+    closeSheet();
+    renderChains();
+    setTimeout(() => {
+      const ip = ipById(ipId);
+      c.check = { exit: ip.host, ago: 0, land: 60 + Math.round(Math.random() * 80) };
+      renderChains();
+      toast(c.device + ' 检测完成：出口 ' + ip.host + '，与绑定一致');
+    }, 1400);
+  }
+
+  // ---------------- 通用 ----------------
+  let toastTimer;
+  function toast(msg) {
+    const t = $('#toast');
+    t.textContent = msg;
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, 2800);
+  }
+
+  function copy(text, pre) {
+    const done = () => toast('已复制');
+    const fallback = () => {
+      if (pre) { const r = document.createRange(); r.selectNodeContents(pre); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+      toast('浏览器不允许自动复制，已选中，按 ⌘C / Ctrl+C');
+    };
+    try { navigator.clipboard.writeText(text).then(done, fallback); } catch (err) { fallback(); }
+  }
+
+  function show(view) {
+    if (!['chains', 'ips', 'airports'].includes(view)) view = 'chains';
+    state.view = view;
+    $$('.view').forEach(v => { v.hidden = v.id !== 'view-' + view; });
+    $$('.nav a').forEach(a => { if (a.dataset.view === view) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+    if (view === 'ips') renderIps();
+    if (view === 'airports') renderAirports();
+    if (view === 'chains') renderChains();
+  }
+
+  function recheck(id) {
+    const c = chains.find(x => x.id === id);
+    const ip = ipById(c.ipId);
+    c.check = { exit: c.id === 'c5' ? '198.51.100.99' : ip.host, ago: 0, land: Math.max(8, (c.check ? c.check.land : 80) + Math.round(Math.random() * 16 - 8)) };
+    renderChains();
+    toast(c.check.exit === ip.host ? c.device + '：出口 ' + ip.host + '，与绑定一致' : c.device + '：出口变成了 ' + c.check.exit + '，请联系供应商');
+  }
+
+  // ---------------- 事件 ----------------
+  document.addEventListener('click', ev => {
+    const t = ev.target.closest('[data-act],[data-tab],[data-copy],[data-region],[data-proto],.chain-row,#parsed li[data-i],#fProto button');
+    if (!t) return;
+    if (t.matches('.chain-row')) { state.selected = t.dataset.id; renderChains(); if (innerWidth <= 1180) $('#detail').scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    if (t.matches('#parsed li[data-i]')) { state.paste.sel = +t.dataset.i; renderParsed(); fillFields(state.paste.records[state.paste.sel], true); return; }
+    if (t.matches('#fProto button')) { setProto(t.dataset.v); syncFieldsToRecord(); return; }
+    if (t.dataset.tab) { state.tab = t.dataset.tab; renderDetail(); return; }
+    if (t.dataset.copy) { copy(t.dataset.copy); return; }
+    if (t.dataset.region) { state.region = t.dataset.region; renderAirports(); return; }
+    if (t.dataset.proto) {
+      state.defaultProto = t.dataset.proto;
+      $$('[data-proto]').forEach(b => b.setAttribute('aria-pressed', String(b === t)));
+      state.paste.records = [];
+      runParse(true);
+      return;
+    }
+    switch (t.dataset.act) {
+      case 'new-chain': openSheet(); break;
+      case 'close-sheet': closeSheet(); break;
+      case 'check': recheck(t.dataset.id); break;
+      case 'check-all': chains.forEach(c => { if (c.check) c.check.ago = 0; }); renderChains(); toast('已检测 ' + chains.length + ' 条链路'); break;
+      case 'pass': state.showPass = !state.showPass; renderDetail(); break;
+      case 'copy-config': {
+        const c = chains.find(x => x.id === state.selected), e = evaluate(c);
+        const keep = state.showPass; state.showPass = true;
+        const text = state.tab === 'surge' ? surgeConfig(c, e) : clashConfig(c, e);
+        state.showPass = keep;
+        copy(text, $('#configPre'));
+        break;
+      }
+      case 'ip-check': {
+        const r = ipById(t.dataset.id);
+        toast(r.cc ? r.host + '：' + COUNTRY[r.cc] + ' ' + r.city + ' · ' + r.isp + ' · ' + r.kind : '原型不联网。上线后这里会查询 ' + r.host + ' 的地区、ASN 和风险分。');
+        break;
+      }
+      case 'air-sync': toast(airById(t.dataset.id).name + '：原型不联网，上线后会重新拉取订阅并测速'); break;
+    }
+  });
+
+  document.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape' && !$('#sheetBg').hidden) closeSheet();
+    if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.matches('.chain-row, #parsed li[data-i]')) { ev.preventDefault(); ev.target.click(); }
+  });
+  $('#sheetBg').addEventListener('click', ev => { if (ev.target.id === 'sheetBg') closeSheet(); });
+  $('#newChainForm').addEventListener('submit', createChain);
+  $('#nNode').addEventListener('change', () => { $('input[name="front"][value="fixed"]').checked = true; });
+
+  let parseTimer;
+  $('#paste').addEventListener('input', () => { clearTimeout(parseTimer); parseTimer = setTimeout(() => runParse(true), 120); });
+  $('#addIps').addEventListener('click', addIps);
+  ['#fPort', '#fUser', '#fPass', '#fRemark', '#fExpire', '#fHost'].forEach(s => $(s).addEventListener('input', syncFieldsToRecord));
+
+  // 在任意字段里粘贴整串，也会自动拆开
+  Object.values(F).slice(0, 4).forEach(sel => {
+    $(sel).addEventListener('paste', ev => {
+      const text = (ev.clipboardData || window.clipboardData).getData('text');
+      const res = ProxyParser.parse(text, { defaultProtocol: state.defaultProto });
+      const r = res.records[0];
+      const looksWhole = r && (r.username || /[:@\s|]/.test(text.trim()));
+      if (!looksWhole) return;
+      ev.preventDefault();
+      $('#paste').value = text.trim();
+      state.paste.records = [];
+      state.paste.sel = 0;
+      runParse(true);
+      toast('已拆分为 IP / 端口 / 账户 / 密码');
+    });
+  });
+
+  $('#airGrid').addEventListener('submit', ev => {
+    ev.preventDefault();
+    const v = $('#airUrl').value.trim();
+    toast(v ? '原型不联网。上线后会拉取这个订阅、解析节点并测速。' : '先粘贴订阅链接');
+  });
+
+  window.addEventListener('hashchange', () => show(location.hash.slice(1)));
+
+  // ---------------- 启动 ----------------
+  $('#paste').value = SAMPLE;
+  runParse(false);
+  show(location.hash.slice(1) || 'chains');
+})();
+</script>

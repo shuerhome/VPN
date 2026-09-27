@@ -393,3 +393,24 @@ td input[type="date"] { border: 1px solid var(--line); border-radius: 5px; paddi
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 560px) { .usage { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---------- 机场：客户端身份与探测 ---------- */
+.air-source { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: 12.5px; }
+.air-src { color: var(--ink-2); overflow-wrap: anywhere; }
+.linkish { background: none; border: 0; padding: 0; color: var(--front); cursor: pointer; font: inherit; font-size: 12.5px; text-decoration: underline; text-underline-offset: 2px; text-align: left; }
+.linkish:hover { color: var(--ink); }
+.air.add textarea { width: 100%; min-height: 120px; resize: vertical; border: 1px solid var(--line-strong); border-radius: 6px; padding: 8px 10px; background: var(--surface); font-size: 12px; }
+.air.add #airPasteForm { display: grid; gap: 8px; }
+.air.add #airPasteForm .row-actions input { flex: 1; min-width: 0; border: 1px solid var(--line-strong); border-radius: 6px; padding: 7px 10px; background: var(--surface); }
+.probe { padding: 16px 18px; display: grid; gap: 10px; margin-bottom: 18px; }
+.probe-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.probe-head h2 { font-size: 16px; }
+.probe-extra { display: flex; gap: 8px; }
+.probe-extra input { flex: 1; min-width: 0; border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 10px; background: var(--surface); font-size: 12.5px; }
+.probe tr.best td { background: var(--ok-soft); }
+.tag.good { color: var(--ok); border-color: var(--ok); }
+.node-note { margin: 0 0 10px; }
+.probe td { vertical-align: top; }
+.probe td:nth-child(3) { white-space: normal; min-width: 240px; max-width: 520px; }
+.probe td:nth-child(3) .sub { white-space: normal; }
+.probe td:nth-child(4) { white-space: normal; max-width: 260px; }

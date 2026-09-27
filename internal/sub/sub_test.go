@@ -37,7 +37,7 @@ proxies:
 	if _, ok := nodes[2].Raw["dialer-proxy"]; ok {
 		t.Fatal("机场节点自带的 dialer-proxy 应被去掉")
 	}
-	if !isInfoNode(nodes[1].Name) || isInfoNode(nodes[0].Name) {
+	if !isInfoNode(nodes[1]) || isInfoNode(nodes[0]) {
 		t.Fatal("说明节点识别不对")
 	}
 }
@@ -101,5 +101,21 @@ func TestFillInfoFromName(t *testing.T) {
 	fillInfoFromName(&info, "套餐到期：2027-01-14")
 	if info.Total != int64(312.5*(1<<30)) || info.Expire == 0 {
 		t.Fatalf("%+v", info)
+	}
+}
+
+func TestNoticeNodesFiltered(t *testing.T) {
+	body := []byte(`
+proxies:
+  - {name: "！！！请尽快使用官方 Ninja客户端，已支持iOS外部测试！！！", type: ss, server: hk.example.org, port: 443, cipher: aes-128-gcm, password: p}
+  - {name: "占位", type: ss, server: 127.0.0.1, port: 443, cipher: aes-128-gcm, password: p}
+  - {name: "香港 02（专线；智能）", type: ss, server: hk2.example.org, port: 443, cipher: aes-128-gcm, password: p}
+`)
+	res, err := Parse(body, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Nodes) != 1 || res.Nodes[0].Name != "香港 02（专线；智能）" || res.Nodes[0].Country != "HK" || len(res.Notices) != 2 {
+		t.Fatalf("%+v", res)
 	}
 }

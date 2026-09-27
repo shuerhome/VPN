@@ -10,6 +10,9 @@ import (
 	"time"
 )
 
+// FrontsUnreachable 是服务器连不上任何前置节点时的检测错误前缀（入口在国内的专线常见）。
+const FrontsUnreachable = "前置节点全部不可用"
+
 // notify 异步发 Telegram，失败只记日志。
 func (a *App) notify(text string) {
 	if !a.Notify.Enabled() || a.Notify.ChatID() == 0 {
@@ -100,6 +103,9 @@ func (a *App) EvaluateAlerts() {
 		for _, c := range chains {
 			if c.IPID != ip.ID || c.CheckAt == 0 || !relayOK {
 				continue
+			}
+			if strings.HasPrefix(c.CheckError, FrontsUnreachable) {
+				continue // 前置入口在国内、服务器连不上：服务器上验证不了，不算故障
 			}
 			state, bad := "ok", ""
 			switch {

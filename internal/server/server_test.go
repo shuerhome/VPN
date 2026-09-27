@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"testing/fstest"
 
 	"luodi/internal/app"
+	"luodi/internal/check"
 	"luodi/internal/crypt"
 	"luodi/internal/notify"
 	"luodi/internal/relay"
@@ -35,7 +37,9 @@ func newServer(t *testing.T) (*httptest.Server, *store.Store, string) {
 	c, _ := st.Chain(cid)
 
 	rl := &relay.Relay{PublicHost: "72.61.12.131", PublicPort: 443, SNI: "www.microsoft.com", Store: st}
-	a := &app.App{Store: st, Notify: &notify.Telegram{Store: st}, Stats: &stats.Collector{Relay: rl, Store: st}, RelayEnabled: true}
+	// 测试里没有 mihomo：后台测速会直接报「启动失败」，不影响接口
+	runner := &check.Runner{Bin: filepath.Join(t.TempDir(), "no-mihomo"), WorkDir: t.TempDir()}
+	a := &app.App{Store: st, Runner: runner, Notify: &notify.Telegram{Store: st}, Stats: &stats.Collector{Relay: rl, Store: st}, RelayEnabled: true}
 	assets := fstest.MapFS{"index.html": {Data: []byte("<!doctype html>panel")}}
 	srv := httptest.NewServer(New(a, rl, "password123", "", assets).Handler())
 	t.Cleanup(srv.Close)
@@ -230,5 +234,89 @@ func TestAssetVersioning(t *testing.T) {
 	}
 	if resp, _ = get(t, srv.URL+"/app.js?v=old", "x"); resp.Header.Get("Cache-Control") != "no-cache" {
 		t.Fatalf("旧版本号不应长期缓存: %q", resp.Header.Get("Cache-Control"))
+	}
+}
+
+// 模拟按客户端身份返回不同节点的机场：通用客户端拿到旧节点和「请使用官方客户端」提示，
+// 特定客户端拿到新线路。探测应能找出它，改用后同步到新节点。
+func TestAirportProbeAndUA(t *testing.T) {
+	sub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("subscription-userinfo", "upload=1; download=2; total=100; expire=1799920333")
+		if strings.HasPrefix(r.UserAgent(), "clash-verge/v2") {
+			fmt.Fprint(w, "proxies:\n  - {name: \"香港 02（专线；智能）\", type: ss, server: hk2.example.org, port: 443, cipher: aes-128-gcm, password: p}\n  - {name: \"美国 02（专线；智能）\", type: ss, server: us2.example.org, port: 443, cipher: aes-128-gcm, password: p}\n  - {name: \"日本 02（专线；智能）\", type: ss, server: jp2.example.org, port: 443, cipher: aes-128-gcm, password: p}\n")
+			return
+		}
+		fmt.Fprint(w, "proxies:\n  - {name: \"！！！请尽快使用官方 Ninja客户端！！！\", type: ss, server: x.example.org, port: 443, cipher: aes-128-gcm, password: p}\n  - {name: \"香港 01\", type: ss, server: old.example.org, port: 443, cipher: aes-128-gcm, password: p}\n")
+	}))
+	defer sub.Close()
+
+	srv, st, _ := newServer(t)
+	resp, err := http.Post(srv.URL+"/api/login", "application/json", strings.NewReader(`{"password":"password123"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie := resp.Cookies()[0]
+	call := func(method, path, body string) (int, map[string]any) {
+		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		req.AddCookie(cookie)
+		req.Header.Set("X-Panel", "1")
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out
+	}
+	code, out := call("POST", "/api/airports", `{"name":"冲浪云","url":"`+sub.URL+`/sub?token=x"}`)
+	if code != 200 {
+		t.Fatalf("添加失败: %d %v", code, out)
+	}
+	id := int64(out["id"].(float64))
+	names := func() []string {
+		nodes, _ := st.Nodes()
+		var n []string
+		for _, x := range nodes {
+			if x.AirportID == id {
+				n = append(n, x.Name)
+			}
+		}
+		return n
+	}
+	if got := names(); len(got) != 1 || got[0] != "香港 01" {
+		t.Fatalf("默认身份应只拿到旧节点（提示节点被过滤）: %v", got)
+	}
+	code, out = call("POST", fmt.Sprintf("/api/airports/%d/probe", id), `{}`)
+	if code != 200 {
+		t.Fatalf("探测失败: %d %v", code, out)
+	}
+	best := ""
+	for _, r := range out["results"].([]any) {
+		m := r.(map[string]any)
+		if m["nodes"].(float64) == 3 {
+			best = m["ua"].(string)
+		}
+		if m["ua"] == "clash.meta" && len(m["notices"].([]any)) != 1 {
+			t.Fatalf("clash.meta 的结果应带上提示节点: %v", m)
+		}
+	}
+	if !strings.HasPrefix(best, "clash-verge/v2") {
+		t.Fatalf("探测应找出 clash-verge/v2: %v", out)
+	}
+	if code, out = call("PATCH", fmt.Sprintf("/api/airports/%d", id), `{"ua":"`+best+`"}`); code != 200 {
+		t.Fatalf("改身份失败: %d %v", code, out)
+	}
+	if got := names(); len(got) != 3 {
+		t.Fatalf("改用新身份后应同步到 3 个新节点: %v", got)
+	}
+	// 手动粘贴配置
+	code, out = call("POST", "/api/airports", `{"content":"proxies:\n  - {name: \"新加坡 01（专线）\", type: ss, server: sg.example.org, port: 443, cipher: aes-128-gcm, password: p}\n"}`)
+	if code != 200 || out["warning"] != nil {
+		t.Fatalf("粘贴导入失败: %d %v", code, out)
+	}
+	if code, _ = call("POST", "/api/airports", `{"content":"随便一段文字"}`); code != 400 {
+		t.Fatalf("无效内容应 400: %d", code)
 	}
 }

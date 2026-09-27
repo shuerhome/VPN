@@ -19,8 +19,27 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// UserAgent 让机场返回带完整节点的 Clash Meta 配置和 subscription-userinfo 头。
-const UserAgent = "clash.meta"
+// DefaultUA 是默认的订阅客户端身份。很多机场会按 User-Agent 返回不同的节点列表，
+// 可以在面板里给每个机场单独设置，或用「探测」挑出节点最全的那个。
+const DefaultUA = "clash.meta"
+
+// ProbeUAs 是探测时依次尝试的常见客户端身份。
+var ProbeUAs = []string{
+	"clash.meta",
+	"mihomo/1.19.13",
+	"clash-verge/v2.2.3",
+	"clash-verge/v1.7.7",
+	"ClashforWindows/0.20.39",
+	"Clash Nyanpasu/v1.6.1",
+	"FlClash/v0.8.80 clash-verge",
+	"ClashX Pro/1.118.0",
+	"Stash/2.7.0 Clash/1.9.0",
+	"Shadowrocket/2070 CFNetwork/1498.700.2 Darwin/23.6.0",
+	"Quantumult%20X/1.4.1",
+	"sing-box 1.11.4",
+	"v2rayN/7.10.0",
+	"Hiddify/2.5.7",
+}
 
 type Info struct {
 	Upload, Download, Total, Expire int64
@@ -39,7 +58,8 @@ type Result struct {
 	Info    Info
 	HasInfo bool
 	Nodes   []Node
-	Skipped int // 被过滤掉的「剩余流量 / 到期」之类的说明节点
+	Skipped int      // 被过滤掉的「剩余流量 / 到期」之类的说明节点
+	Notices []string // 这些说明节点的名字
 }
 
 // IsIPHost 判断订阅地址是不是纯 IP，这类地址通常是自签证书。
@@ -51,10 +71,23 @@ func IsIPHost(raw string) bool {
 	return net.ParseIP(u.Hostname()) != nil
 }
 
-func Fetch(ctx context.Context, rawURL string, insecure bool) (*Result, error) {
+// Fetch 用指定的客户端身份拉取订阅并解析。ua 为空时用 DefaultUA。
+func Fetch(ctx context.Context, rawURL string, insecure bool, ua string) (*Result, error) {
+	body, userinfo, err := Download(ctx, rawURL, insecure, ua)
+	if err != nil {
+		return nil, err
+	}
+	return Parse(body, userinfo)
+}
+
+// Download 只下载订阅内容，返回正文和 subscription-userinfo 头。
+func Download(ctx context.Context, rawURL string, insecure bool, ua string) ([]byte, string, error) {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return nil, errors.New("订阅链接格式不对，应以 http:// 或 https:// 开头")
+		return nil, "", errors.New("订阅链接格式不对，应以 http:// 或 https:// 开头")
+	}
+	if ua == "" {
+		ua = DefaultUA
 	}
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: insecure}
@@ -62,39 +95,44 @@ func Fetch(ctx context.Context, rawURL string, insecure bool) (*Result, error) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	req.Header.Set("User-Agent", UserAgent)
+	req.Header.Set("User-Agent", ua)
 	resp, err := client.Do(req)
 	if err != nil {
 		var cerr *tls.CertificateVerificationError
 		if errors.As(err, &cerr) {
-			return nil, errors.New("证书校验失败。订阅地址是纯 IP 或自签证书时，勾选「忽略证书错误」")
+			return nil, "", errors.New("证书校验失败。订阅地址是纯 IP 或自签证书时，勾选「忽略证书错误」")
 		}
-		return nil, fmt.Errorf("请求订阅失败：%v", err)
+		return nil, "", fmt.Errorf("请求订阅失败：%v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("订阅返回 HTTP %d，检查链接是否过期", resp.StatusCode)
+		return nil, "", fmt.Errorf("订阅返回 HTTP %d，检查链接是否过期", resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 20<<20))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
+	return body, resp.Header.Get("subscription-userinfo"), nil
+}
 
+// Parse 解析订阅正文（Clash YAML 或节点链接列表），过滤掉「剩余流量」「请使用官方客户端」这类说明节点。
+func Parse(body []byte, userinfo string) (*Result, error) {
 	res := &Result{}
-	if h := resp.Header.Get("subscription-userinfo"); h != "" {
-		res.Info, res.HasInfo = ParseUserInfo(h)
+	if userinfo != "" {
+		res.Info, res.HasInfo = ParseUserInfo(userinfo)
 	}
 	nodes, err := ParseBody(body)
 	if err != nil {
 		return nil, err
 	}
 	for _, n := range nodes {
-		if isInfoNode(n.Name) {
+		if isInfoNode(n) {
 			if !res.HasInfo {
 				fillInfoFromName(&res.Info, n.Name)
 			}
+			res.Notices = append(res.Notices, n.Name)
 			res.Skipped++
 			continue
 		}
@@ -104,6 +142,49 @@ func Fetch(ctx context.Context, rawURL string, insecure bool) (*Result, error) {
 		return nil, errors.New("订阅里没有解析出可用节点")
 	}
 	return res, nil
+}
+
+// ProbeResult 是用某个客户端身份拉订阅的结果。
+type ProbeResult struct {
+	UA      string         `json:"ua"`
+	Nodes   int            `json:"nodes"`
+	Types   map[string]int `json:"types"`
+	Sample  []string       `json:"sample"`  // 前几个节点名
+	Notices []string       `json:"notices"` // 说明节点（如「请使用官方客户端」）
+	HasInfo bool           `json:"has_info"`
+	Error   string         `json:"error"`
+}
+
+// Probe 用一组客户端身份分别拉取订阅，找出机场对哪个身份给的节点最全。
+func Probe(ctx context.Context, rawURL string, insecure bool, uas []string) []ProbeResult {
+	out := make([]ProbeResult, len(uas))
+	sem := make(chan struct{}, 4)
+	done := make(chan struct{})
+	for i, ua := range uas {
+		go func(i int, ua string) {
+			sem <- struct{}{}
+			defer func() { <-sem; done <- struct{}{} }()
+			r := ProbeResult{UA: ua, Types: map[string]int{}}
+			res, err := Fetch(ctx, rawURL, insecure, ua)
+			if err != nil {
+				r.Error = err.Error()
+				out[i] = r
+				return
+			}
+			r.Nodes, r.HasInfo, r.Notices = len(res.Nodes), res.HasInfo, res.Notices
+			for _, n := range res.Nodes {
+				r.Types[n.Type]++
+				if len(r.Sample) < 6 {
+					r.Sample = append(r.Sample, n.Name)
+				}
+			}
+			out[i] = r
+		}(i, ua)
+	}
+	for range uas {
+		<-done
+	}
+	return out
 }
 
 // ParseUserInfo 解析 "upload=1; download=2; total=3; expire=4"。
@@ -236,9 +317,14 @@ func decodeB64(s string) (string, bool) {
 
 // ---------------- 说明节点 ----------------
 
-var infoNodeRe = regexp.MustCompile(`(?i)剩余|到期|过期|有效期|官网|网址|重置|订阅|群组|频道|客服|公告|更新|traffic|expire|remaining|telegram`)
+var infoNodeRe = regexp.MustCompile(`(?i)剩余|到期|过期|有效期|官网|网址|重置|订阅|群组|频道|客服|公告|更新|客户端|官方|请尽快|！！|!!!|traffic|expire|remaining|telegram`)
 
-func isInfoNode(name string) bool { return infoNodeRe.MatchString(name) }
+// 说明节点常用的占位服务器地址
+var placeholderServers = map[string]bool{"127.0.0.1": true, "0.0.0.0": true, "1.1.1.1": true, "8.8.8.8": true, "localhost": true, "example.com": true}
+
+func isInfoNode(n Node) bool {
+	return infoNodeRe.MatchString(n.Name) || placeholderServers[strings.ToLower(n.Server)] || n.Port <= 1
+}
 
 var (
 	remainRe = regexp.MustCompile(`剩余流量[:：\s]*([\d.]+)\s*([KMGT]i?B|[KMGT])`)

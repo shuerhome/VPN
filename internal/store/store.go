@@ -19,6 +19,8 @@ type Airport struct {
 	Name      string `json:"name"`
 	URL       string `json:"-"`
 	Insecure  bool   `json:"insecure"`
+	UA        string `json:"ua"` // 拉订阅用的客户端身份，空为默认
+	Content   string `json:"-"`  // 手动粘贴的节点配置（有它就不去拉订阅）
 	Upload    int64  `json:"upload"`
 	Download  int64  `json:"download"`
 	Total     int64  `json:"total"`
@@ -155,6 +157,8 @@ func Open(path string, box *crypt.Box) (*Store, error) {
 		`ALTER TABLE chains ADD COLUMN relay_uuid TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE chains ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE chains ADD COLUMN last_src TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE airports ADD COLUMN ua TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE airports ADD COLUMN content_enc TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE chains ADD COLUMN selfcheck_at INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE chains ADD COLUMN selfcheck_ok INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE chains ADD COLUMN selfcheck TEXT NOT NULL DEFAULT ''`,
@@ -201,7 +205,7 @@ func (s *Store) SetSetting(key, value string) error {
 // ---------------- airports ----------------
 
 func (s *Store) Airports() ([]Airport, error) {
-	rows, err := s.db.Query(`SELECT id,name,url_enc,insecure,upload,download,total,expire,synced_at,last_error FROM airports ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id,name,url_enc,insecure,upload,download,total,expire,synced_at,last_error,ua,content_enc FROM airports ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -209,13 +213,14 @@ func (s *Store) Airports() ([]Airport, error) {
 	var out []Airport
 	for rows.Next() {
 		var a Airport
-		var enc string
+		var enc, cenc string
 		var ins int
-		if err := rows.Scan(&a.ID, &a.Name, &enc, &ins, &a.Upload, &a.Download, &a.Total, &a.Expire, &a.SyncedAt, &a.LastError); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &enc, &ins, &a.Upload, &a.Download, &a.Total, &a.Expire, &a.SyncedAt, &a.LastError, &a.UA, &cenc); err != nil {
 			return nil, err
 		}
 		a.Insecure = ins == 1
 		a.URL, _ = s.box.Open(enc)
+		a.Content, _ = s.box.Open(cenc)
 		out = append(out, a)
 	}
 	return out, rows.Err()
@@ -235,11 +240,29 @@ func (s *Store) Airport(id int64) (*Airport, error) {
 }
 
 func (s *Store) AddAirport(name, url string, insecure bool) (int64, error) {
-	res, err := s.db.Exec(`INSERT INTO airports(name,url_enc,insecure) VALUES(?,?,?)`, name, s.box.Seal(url), b2i(insecure))
+	return s.AddAirportFull(name, url, insecure, "", "")
+}
+
+// AddAirportFull 添加机场：url 为订阅链接；content 不为空时表示手动粘贴的节点配置。
+func (s *Store) AddAirportFull(name, url string, insecure bool, ua, content string) (int64, error) {
+	res, err := s.db.Exec(`INSERT INTO airports(name,url_enc,insecure,ua,content_enc) VALUES(?,?,?,?,?)`,
+		name, s.box.Seal(url), b2i(insecure), ua, s.box.Seal(content))
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// UpdateAirportUA 修改拉订阅用的客户端身份。
+func (s *Store) UpdateAirportUA(id int64, ua string) error {
+	_, err := s.db.Exec(`UPDATE airports SET ua=? WHERE id=?`, ua, id)
+	return err
+}
+
+// UpdateAirportContent 替换手动粘贴的节点配置。
+func (s *Store) UpdateAirportContent(id int64, content string) error {
+	_, err := s.db.Exec(`UPDATE airports SET content_enc=? WHERE id=?`, s.box.Seal(content), id)
+	return err
 }
 
 func (s *Store) UpdateAirportSync(id int64, up, down, total, expire int64, syncErr string) error {

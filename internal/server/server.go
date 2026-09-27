@@ -69,6 +69,8 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/state", s.state)
 	api.HandleFunc("POST /api/airports", s.addAirport)
 	api.HandleFunc("POST /api/airports/{id}/sync", s.syncAirport)
+	api.HandleFunc("POST /api/airports/{id}/probe", s.probeAirport)
+	api.HandleFunc("PATCH /api/airports/{id}", s.updateAirport)
 	api.HandleFunc("DELETE /api/airports/{id}", s.deleteAirport)
 	api.HandleFunc("POST /api/nodes/test", s.testNodes)
 	api.HandleFunc("POST /api/ips", s.addIPs)
@@ -277,6 +279,7 @@ func (s *Server) baseURL(r *http.Request) string {
 
 type airportView struct {
 	store.Airport
+	Manual    bool   `json:"manual"` // 手动粘贴的配置
 	URLMasked string `json:"url_masked"`
 	Nodes     int    `json:"nodes"`
 	Alive     int    `json:"alive"`
@@ -309,7 +312,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	}
 	views := make([]airportView, 0, len(aps))
 	for _, a := range aps {
-		v := airportView{Airport: a, URLMasked: maskURL(a.URL)}
+		v := airportView{Airport: a, URLMasked: maskURL(a.URL), Manual: a.Content != ""}
 		for _, n := range nodes {
 			if n.AirportID == a.ID {
 				v.Nodes++
@@ -379,25 +382,40 @@ func (s *Server) addAirport(w http.ResponseWriter, r *http.Request) {
 		Name     string `json:"name"`
 		URL      string `json:"url"`
 		Insecure *bool  `json:"insecure"`
+		UA       string `json:"ua"`
+		Content  string `json:"content"` // 手动粘贴的 Clash 配置或节点链接
 	}
 	if !decode(w, r, &body) {
 		return
 	}
 	body.URL = strings.TrimSpace(body.URL)
-	u, err := url.Parse(body.URL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		writeErr(w, http.StatusBadRequest, "订阅链接应以 http:// 或 https:// 开头")
-		return
-	}
-	insecure := sub.IsIPHost(body.URL)
-	if body.Insecure != nil {
-		insecure = *body.Insecure
-	}
+	body.Content = strings.TrimSpace(body.Content)
 	name := strings.TrimSpace(body.Name)
-	if name == "" {
-		name = u.Hostname()
+	insecure := false
+	if body.Content != "" {
+		if _, err := sub.Parse([]byte(body.Content), ""); err != nil {
+			writeErr(w, http.StatusBadRequest, "粘贴的内容里没有解析出节点：请粘贴 Clash 配置（含 proxies:）或节点链接")
+			return
+		}
+		body.URL = ""
+		if name == "" {
+			name = "手动导入"
+		}
+	} else {
+		u, err := url.Parse(body.URL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			writeErr(w, http.StatusBadRequest, "订阅链接应以 http:// 或 https:// 开头")
+			return
+		}
+		insecure = sub.IsIPHost(body.URL)
+		if body.Insecure != nil {
+			insecure = *body.Insecure
+		}
+		if name == "" {
+			name = u.Hostname()
+		}
 	}
-	id, err := s.App.Store.AddAirport(name, body.URL, insecure)
+	id, err := s.App.Store.AddAirportFull(name, body.URL, insecure, strings.TrimSpace(body.UA), body.Content)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -410,6 +428,93 @@ func (s *Server) addAirport(w http.ResponseWriter, r *http.Request) {
 	}
 	s.background("测速", s.App.TestNodes)
 	writeJSON(w, map[string]any{"id": id})
+}
+
+// updateAirport 修改机场的客户端身份，或替换手动粘贴的配置，然后立即重新同步。
+func (s *Server) updateAirport(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "ID 不对")
+		return
+	}
+	var body struct {
+		UA      *string `json:"ua"`
+		Content *string `json:"content"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if _, err := s.App.Store.Airport(id); err != nil {
+		notFoundOr(w, err)
+		return
+	}
+	if body.UA != nil {
+		if err := s.App.Store.UpdateAirportUA(id, strings.TrimSpace(*body.UA)); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if body.Content != nil {
+		c := strings.TrimSpace(*body.Content)
+		if _, err := sub.Parse([]byte(c), ""); err != nil {
+			writeErr(w, http.StatusBadRequest, "粘贴的内容里没有解析出节点")
+			return
+		}
+		if err := s.App.Store.UpdateAirportContent(id, c); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	if err := s.App.SyncAirport(ctx, id); err != nil {
+		writeErr(w, http.StatusBadRequest, "已保存，但同步失败："+err.Error())
+		return
+	}
+	s.Relay.Reload()
+	s.background("测速", s.App.TestNodes)
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// probeAirport 用多种客户端身份分别拉订阅，看机场对哪个身份给的节点最全。
+func (s *Server) probeAirport(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "ID 不对")
+		return
+	}
+	ap, err := s.App.Store.Airport(id)
+	if err != nil {
+		notFoundOr(w, err)
+		return
+	}
+	if ap.URL == "" {
+		writeErr(w, http.StatusBadRequest, "这是手动粘贴的配置，没有订阅链接可以探测")
+		return
+	}
+	var body struct {
+		Extra string `json:"extra"` // 额外要试的身份（比如从官方客户端里看到的）
+	}
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body)
+	uas := append([]string{}, sub.ProbeUAs...)
+	if e := strings.TrimSpace(body.Extra); e != "" {
+		uas = append([]string{e}, uas...)
+	}
+	if ap.UA != "" && !contains(uas, ap.UA) {
+		uas = append([]string{ap.UA}, uas...)
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+	writeJSON(w, map[string]any{"current": ap.UA, "results": sub.Probe(ctx, ap.URL, ap.Insecure, uas)})
+}
+
+func contains(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) syncAirport(w http.ResponseWriter, r *http.Request) {

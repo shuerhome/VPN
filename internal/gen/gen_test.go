@@ -24,8 +24,8 @@ func sample() (store.Chain, store.IP, []store.Node) {
 func TestFrontNodes(t *testing.T) {
 	c, ip, nodes := sample()
 	got := FrontNodes(c, ip, nodes)
-	if len(got) != 2 || got[0].ID != 1 || got[1].ID != 4 {
-		t.Fatalf("自动模式应取同国家、未超时、测过的优先：%+v", got)
+	if len(got) != 3 || got[0].ID != 1 || got[1].ID != 4 || got[2].ID != 2 {
+		t.Fatalf("自动模式应取同国家节点：服务器能连上的在前，没测过的其次，服务器连不上的也保留在最后：%+v", got)
 	}
 	c.FrontMode, c.FrontNodeID = "fixed", 3
 	if got := FrontNodes(c, ip, nodes); len(got) != 1 || got[0].ID != 3 {

@@ -15,7 +15,7 @@ import (
 )
 
 // MaxAutoFronts 自动模式下前置组最多放几个节点。
-const MaxAutoFronts = 5
+const MaxAutoFronts = 8
 
 // FastestInterval 是「最快」模式下手机端测速的间隔（秒）。
 const FastestInterval = 10
@@ -24,8 +24,11 @@ const FastestInterval = 10
 const FastestTolerance = 50
 
 // FrontNodes 选出这条链路的前置节点。
-// 固定模式：就是那一个节点。自动模式：与落地IP同国家、没超时的节点，按延迟排序取前几个；
-// 同国家没有可用节点时退回全部可用节点。
+// 固定模式：就是那一个节点。自动 / 最快模式：与落地IP同国家的节点，按服务器测速排序，最多 MaxAutoFronts 个；
+// 同国家没有节点时退回全部节点。
+//
+// 服务器（VPS 在海外）测不通的节点也保留：入口在国内的专线从海外常常连不上，但手机上能用。
+// 手机上的客户端每 10 秒自己测速，连不上的节点会被自动跳过。
 func FrontNodes(c store.Chain, ip store.IP, nodes []store.Node) []store.Node {
 	if c.FrontMode == "fixed" {
 		for _, n := range nodes {
@@ -35,28 +38,32 @@ func FrontNodes(c store.Chain, ip store.IP, nodes []store.Node) []store.Node {
 		}
 		return nil
 	}
-	usable := func(n store.Node) bool { return n.DelayMS != -1 }
 	var pick []store.Node
 	if ip.CountryCode != "" {
 		for _, n := range nodes {
-			if n.Country == ip.CountryCode && usable(n) {
+			if n.Country == ip.CountryCode {
 				pick = append(pick, n)
 			}
 		}
 	}
 	if len(pick) == 0 {
-		for _, n := range nodes {
-			if usable(n) {
-				pick = append(pick, n)
-			}
+		pick = append(pick, nodes...)
+	}
+	rank := func(n store.Node) int {
+		switch {
+		case n.DelayMS > 0:
+			return 0 // 服务器能连上
+		case n.DelayMS == 0:
+			return 1 // 还没测
 		}
+		return 2 // 服务器连不上（手机上可能可以）
 	}
 	sort.SliceStable(pick, func(i, j int) bool {
-		a, b := pick[i].DelayMS, pick[j].DelayMS
-		if (a > 0) != (b > 0) {
-			return a > 0 // 测过的排前面
+		ri, rj := rank(pick[i]), rank(pick[j])
+		if ri != rj {
+			return ri < rj
 		}
-		return a < b
+		return pick[i].DelayMS < pick[j].DelayMS
 	})
 	if len(pick) > MaxAutoFronts {
 		pick = pick[:MaxAutoFronts]

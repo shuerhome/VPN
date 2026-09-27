@@ -41,7 +41,12 @@ func (a *App) SyncAirport(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	res, err := sub.Fetch(ctx, ap.URL, ap.Insecure)
+	var res *sub.Result
+	if ap.Content != "" {
+		res, err = sub.Parse([]byte(ap.Content), "")
+	} else {
+		res, err = sub.Fetch(ctx, ap.URL, ap.Insecure, ap.UA)
+	}
 	if err != nil {
 		_ = a.Store.UpdateAirportSync(id, 0, 0, 0, 0, err.Error())
 		return err
@@ -52,6 +57,10 @@ func (a *App) SyncAirport(ctx context.Context, id int64) error {
 	}
 	if err := a.Store.ReplaceNodes(id, nodes); err != nil {
 		return err
+	}
+	if ap.Content != "" && !res.HasInfo && res.Info.Total == 0 {
+		// 手动粘贴的配置没有流量信息，保留上次的数字
+		return a.Store.UpdateAirportSync(id, ap.Upload, ap.Download, ap.Total, ap.Expire, "")
 	}
 	return a.Store.UpdateAirportSync(id, res.Info.Upload, res.Info.Download, res.Info.Total, res.Info.Expire, "")
 }

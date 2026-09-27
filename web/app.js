@@ -100,6 +100,7 @@
   }
   function airPath(c, ip) {
     if (!c.check_at) return { s: 'pending', t: '等待检测', d: '手机 → 机场节点 → 住宅IP' };
+    if (c.check_error && c.check_error.indexOf('前置节点全部不可用') === 0) return { s: 'pending', t: '服务器上验证不了', d: 'VPS（海外）连不上这些机场节点，入口在国内的专线常见。手机上 Stash 会自己测速选节点，以「手机自检」为准 · ' + ago(c.check_at) };
     if (c.check_error) return { s: 'bad', t: '链路不通', d: c.check_error + ' · ' + ago(c.check_at) };
     if (c.check_exit !== expected(ip)) return { s: 'bad', t: '出口IP不一致', d: '检测到 ' + c.check_exit + '，应为 ' + expected(ip) };
     return { s: 'ok', t: '出口 ' + c.check_exit, d: (c.check_front ? '经 ' + c.check_front + ' · ' : '') + c.check_ms + 'ms · ' + ago(c.check_at) };
@@ -472,24 +473,37 @@
       const used = a.upload + a.download;
       const pct = a.total ? Math.min(100, used / a.total * 100) : 0;
       const d = a.expire ? Math.round((a.expire * 1000 - Date.now()) / DAY) : null;
+      const source = a.manual
+        ? '<span class="air-src">手动导入的配置</span><button class="linkish" type="button" data-act="air-content" data-id="' + a.id + '">替换配置</button>'
+        : '<span class="air-src mono" title="拉订阅时使用的客户端身份（User-Agent）">身份：' + esc(a.ua || 'clash.meta（默认）') + '</span>' +
+          '<button class="linkish" type="button" data-act="air-probe" data-id="' + a.id + '">探测哪个身份节点最全</button>';
       return '<div class="panel air">' +
         '<div class="air-top"><h3>' + esc(a.name) + '</h3><button class="btn small" type="button" data-act="air-sync" data-id="' + a.id + '">更新</button><button class="btn small danger" type="button" data-act="air-delete" data-id="' + a.id + '">删除</button></div>' +
-        '<code>' + esc(a.url_masked) + '</code>' +
+        (a.manual ? '' : '<code>' + esc(a.url_masked) + '</code>') +
+        '<div class="air-source">' + source + '</div>' +
         (a.last_error ? '<span class="hint warn">' + esc(a.last_error) + '</span>' : '') +
         '<div class="meter" title="已用流量"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
         '<div class="air-stats">' +
           '<div><b>' + (a.total ? gb(used) + ' / ' + gb(a.total) : '—') + '</b>GB 已用' + (a.total ? '，剩 ' + gb(a.total - used) : '') + '</div>' +
           '<div class="' + (d != null && d <= 10 ? 'warn' : '') + '"><b>' + (d == null ? '—' : dateOf(a.expire)) + '</b>' + (d == null ? '到期未知' : d + ' 天后到期') + '</div>' +
-          '<div><b>' + a.alive + ' / ' + a.nodes + '</b>节点在线</div>' +
+          '<div><b>' + a.nodes + '</b>个节点</div>' +
         '</div>' +
         '<span class="hint">' + ago(a.synced_at) + '同步' + (a.insecure ? ' · 已忽略证书错误' : '') + '</span>' +
       '</div>';
     }).join('');
+    const pasting = S.airPaste;
     $('#airGrid').innerHTML = cards +
-      '<div class="panel air add"><span class="eyebrow">添加机场订阅</span>' +
-      '<form id="airForm"><input id="airName" placeholder="名称（可选）" aria-label="机场名称" style="flex:0 1 120px;font-family:inherit"><input id="airUrl" placeholder="粘贴订阅链接" aria-label="订阅链接" spellcheck="false" required>' +
-      '<label><input type="checkbox" id="airInsecure">忽略证书错误</label><button class="btn primary" type="submit" id="airSubmit">添加</button></form>' +
-      '<span class="hint">订阅地址是纯 IP（例如 https://45.x.x.x/…）时会自动勾选忽略证书错误。</span></div>';
+      '<div class="panel air add"><span class="eyebrow">添加机场</span>' +
+      (pasting
+        ? '<form id="airPasteForm"><textarea id="airContent" class="mono" rows="6" placeholder="把机场客户端里的 Clash 配置（含 proxies:）或节点链接整段粘贴进来" aria-label="节点配置" spellcheck="false" required></textarea>' +
+          '<div class="row-actions"><input id="airPasteName" placeholder="名称（可选）" aria-label="名称"><button class="btn primary" type="submit" id="airPasteSubmit">导入</button></div></form>' +
+          '<button class="linkish" type="button" data-act="air-mode">改用订阅链接</button>'
+        : '<form id="airForm"><input id="airName" placeholder="名称（可选）" aria-label="机场名称" style="flex:0 1 120px;font-family:inherit"><input id="airUrl" placeholder="粘贴订阅链接" aria-label="订阅链接" spellcheck="false" required>' +
+          '<label><input type="checkbox" id="airInsecure">忽略证书错误</label><button class="btn primary" type="submit" id="airSubmit">添加</button></form>' +
+          '<span class="hint">订阅地址是纯 IP（例如 https://45.x.x.x/…）时会自动勾选忽略证书错误。</span>' +
+          '<button class="linkish" type="button" data-act="air-mode">订阅拿不到完整节点？改为粘贴节点配置</button>') +
+      '</div>';
+    renderProbe();
 
     const codes = Array.from(new Set(S.data.nodes.map(n => n.country || '??'))).sort();
     if (S.region !== 'all' && !codes.includes(S.region)) S.region = 'all';
@@ -499,11 +513,50 @@
     S.data.chains.forEach(c => (c.fronts || []).forEach(id => { useCount[id] = (useCount[id] || 0) + 1; }));
     const rows = S.data.nodes.filter(n => S.region === 'all' || (n.country || '??') === S.region).map(n => {
       const lat = n.delay_ms > 0 ? '<span class="lat"><span class="bar"><i style="width:' + Math.min(100, n.delay_ms / 3) + '%"></i></span>' + n.delay_ms + ' ms</span>'
-        : n.delay_ms < 0 ? '<span class="lat dead">超时</span>' : '<span class="hint">未测</span>';
+        : n.delay_ms < 0 ? '<span class="lat dead" title="从 VPS（海外）连不上。入口在国内的专线常见，手机上不一定有问题">VPS 连不上</span>' : '<span class="hint">未测</span>';
       const air = airById(n.airport_id);
       return '<tr><td>' + (n.country ? '<span class="tag cc">' + esc(n.country) + '</span> ' : '') + esc(n.name) + '</td><td>' + esc(air ? air.name : '') + '</td><td class="mono">' + esc(n.type) + '</td><td>' + lat + '</td><td>' + (useCount[n.id] ? useCount[n.id] + ' 条链路' : '<span class="hint">—</span>') + '</td></tr>';
     }).join('');
     $('#nodeRows').innerHTML = rows || '<tr><td colspan="5" class="hint" style="text-align:center;padding:24px">添加机场订阅后，节点会显示在这里。</td></tr>';
+  }
+
+  function renderProbe() {
+    const box = $('#probePanel');
+    const p = S.probe;
+    if (!p) { box.hidden = true; box.innerHTML = ''; return; }
+    box.hidden = false;
+    const air = airById(p.id);
+    const head = '<div class="probe-head"><h2>' + esc(air ? air.name : '') + '：用不同客户端身份拉订阅</h2><button class="btn small" type="button" data-act="probe-close">关闭</button></div>' +
+      '<p class="hint">很多机场会按客户端返回不同的节点，给第三方客户端的可能是旧节点或只有一条「请使用官方客户端」的提示。选节点最多、没有提示的那个身份。</p>' +
+      '<form id="probeForm" class="probe-extra"><input id="probeExtra" class="mono" placeholder="也可以填官方客户端的 User-Agent 一起试（可选）" aria-label="额外的客户端身份" spellcheck="false"><button class="btn small" type="submit">重新探测</button></form>';
+    if (p.loading) { box.innerHTML = head + '<p class="hint">正在用 ' + (p.count || 15) + ' 种身份分别拉取订阅，大约 10～30 秒…</p>'; return; }
+    if (p.error) { box.innerHTML = head + '<p class="hint warn">' + esc(p.error) + '</p>'; return; }
+    const ok = p.results.filter(r => !r.error);
+    const best = ok.filter(r => !(r.notices || []).some(n => /客户端|官方/.test(n))).sort((a, b) => b.nodes - a.nodes)[0];
+    const rows = p.results.map(r => {
+      const isCur = (r.ua === (p.current || 'clash.meta'));
+      const types = Object.entries(r.types || {}).map(([k, v]) => k + ' ' + v).join('、');
+      const notice = (r.notices || []).filter(n => /客户端|官方|请/.test(n));
+      return '<tr' + (best && r.ua === best.ua ? ' class="best"' : '') + '><td class="mono">' + esc(r.ua) + (isCur ? ' <span class="tag">当前</span>' : '') + (best && r.ua === best.ua ? ' <span class="tag good">推荐</span>' : '') + '</td>' +
+        (r.error ? '<td colspan="3" class="hint warn">' + esc(r.error) + '</td><td></td>'
+          : '<td class="mono">' + r.nodes + '</td><td>' + esc(types) + '<span class="sub">' + esc((r.sample || []).join('、')) + '</span></td>' +
+            '<td>' + (notice.length ? '<span class="hint warn">' + esc(notice[0]) + '</span>' : '<span class="hint">—</span>') + '</td>' +
+            '<td>' + (isCur ? '' : '<button class="btn small" type="button" data-act="probe-use" data-ua="' + esc(r.ua) + '">用这个</button>') + '</td>') +
+      '</tr>';
+    }).join('');
+    box.innerHTML = head + '<div class="table-wrap"><table><thead><tr><th>客户端身份</th><th>节点数</th><th>协议 · 节点示例</th><th>提示</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="hint">如果所有身份都拿不到你在官方客户端里看到的节点，说明官方客户端走的是别的接口：在官方客户端里导出或查看配置文件，用「粘贴节点配置」导入。</p>';
+  }
+
+  async function runProbe(id, extra) {
+    S.probe = { id, loading: true, count: 15 };
+    renderProbe();
+    $('#probePanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    try {
+      const r = await api('POST', '/api/airports/' + id + '/probe', { extra: extra || '' });
+      S.probe = { id, current: r.current, results: r.results };
+    } catch (err) { S.probe = { id, error: err.message }; }
+    renderProbe();
   }
 
   // ---------------- 新建 / 编辑链路 ----------------
@@ -701,6 +754,16 @@
         if (!confirm('解除后不再收到通知。继续吗？')) break;
         busyButton(t, async () => { await api('POST', '/api/telegram/unbind'); toast('已解除绑定'); await refresh(); }); break;
       case 'backup-tg': busyButton(t, async () => { await api('POST', '/api/backup/telegram'); toast('备份已发送到 Telegram'); await refresh(); }); break;
+      case 'air-probe': runProbe(id); break;
+      case 'probe-close': S.probe = null; renderProbe(); break;
+      case 'probe-use': busyButton(t, async () => {
+        await api('PATCH', '/api/airports/' + S.probe.id, { ua: t.dataset.ua });
+        toast('已改用 ' + t.dataset.ua + ' 并重新同步，正在测速');
+        S.probe.current = t.dataset.ua;
+        await refresh(); renderAirports();
+      }); break;
+      case 'air-mode': S.airPaste = !S.airPaste; renderAirports(); break;
+      case 'air-content': S.airPaste = true; S.replaceContentFor = id; renderAirports(); $('#airContent').focus(); toast('粘贴新的配置后点「导入」，会替换这个机场的节点'); break;
       case 'air-sync': busyButton(t, async () => { await api('POST', '/api/airports/' + id + '/sync'); toast('已同步，正在测速'); await refresh(); }); break;
       case 'air-delete':
         if (!confirm('删除这个机场订阅和它的全部节点？')) break;
@@ -724,6 +787,27 @@
   });
 
   document.addEventListener('submit', ev => {
+    if (ev.target.id === 'probeForm') {
+      ev.preventDefault();
+      runProbe(S.probe.id, $('#probeExtra').value.trim());
+      return;
+    }
+    if (ev.target.id === 'airPasteForm') {
+      ev.preventDefault();
+      busyButton($('#airPasteSubmit'), async () => {
+        const content = $('#airContent').value;
+        if (S.replaceContentFor) {
+          await api('PATCH', '/api/airports/' + S.replaceContentFor, { content });
+          toast('已替换配置');
+        } else {
+          const res = await api('POST', '/api/airports', { name: $('#airPasteName').value.trim(), content });
+          toast(res.warning || '已导入，正在测速');
+        }
+        S.airPaste = false; S.replaceContentFor = null;
+        await refresh(); renderAirports();
+      });
+      return;
+    }
     if (ev.target.id !== 'airForm') return;
     ev.preventDefault();
     const btn = $('#airSubmit');

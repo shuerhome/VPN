@@ -141,11 +141,13 @@
         <div class="actions"><button class="btn" type="button" data-act="test-nodes">节点测速</button></div>
       </div>
       <div class="air-grid" id="airGrid"></div>
+      <div class="panel probe" id="probePanel" hidden></div>
+      <p class="hint node-note">「VPS 测速」是在你的 VPS（海外）上测的，入口在国内的专线节点从海外常常连不上，显示「VPS 连不上」不代表手机上不能用。手机上的 Stash 每 10 秒会自己测速、选最快的节点。</p>
       <div class="chips" id="regionChips" role="group" aria-label="按地区筛选"></div>
       <div class="panel">
         <div class="table-wrap">
           <table>
-            <thead><tr><th>节点</th><th>机场</th><th>协议</th><th>延迟</th><th>作为前置</th></tr></thead>
+            <thead><tr><th>节点</th><th>机场</th><th>协议</th><th>VPS 测速</th><th>作为前置</th></tr></thead>
             <tbody id="nodeRows"></tbody>
           </table>
         </div>

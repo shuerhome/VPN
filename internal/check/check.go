@@ -216,7 +216,7 @@ func (r *Runner) Run(ctx context.Context, nodes []store.Node, chains []ChainJob)
 					}
 				}
 				if cr.Error != "" && !alive {
-					cr.Error = "前置节点全部不可用（" + cr.Error + "）"
+					cr.Error = "前置节点全部不可用：服务器连不上这些机场节点（入口在国内的专线常见），以手机自检为准（" + cr.Error + "）"
 				}
 			}
 			mu.Lock()

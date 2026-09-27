@@ -2,6 +2,7 @@ package sub
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 )
 
@@ -117,5 +118,20 @@ proxies:
 	}
 	if len(res.Nodes) != 1 || res.Nodes[0].Name != "香港 02（专线；智能）" || res.Nodes[0].Country != "HK" || len(res.Notices) != 2 {
 		t.Fatalf("%+v", res)
+	}
+}
+
+func TestUnsupportedAndProviders(t *testing.T) {
+	_, err := Parse([]byte("proxies:\n  - {name: \"香港 01（公网；智能）\", type: ninja, server: a.example.org, port: 443}\n  - {name: \"香港 02（专线；智能）\", type: ninja, server: b.example.org, port: 443}\n"), "")
+	if err == nil || !strings.Contains(err.Error(), "ninja（2 个）") {
+		t.Fatalf("应说明是不支持的协议: %v", err)
+	}
+	_, err = Parse([]byte("proxy-providers:\n  airport:\n    type: http\n    url: https://sub.example.org/api?token=x\n    path: ./a.yaml\n"), "")
+	if err == nil || !strings.Contains(err.Error(), "https://sub.example.org/api?token=x") {
+		t.Fatalf("应提示 proxy-providers 的在线链接: %v", err)
+	}
+	res, err := Parse([]byte("proxies:\n  - {name: \"香港 01\", type: ss, server: a.example.org, port: 443, cipher: aes-128-gcm, password: p}\n  - {name: \"香港 02\", type: ninja, server: b.example.org, port: 443}\n"), "")
+	if err != nil || len(res.Nodes) != 1 || !strings.Contains(res.Report.Describe(), "ninja（1 个）") {
+		t.Fatalf("部分可用时应导入可用的并提示跳过的: %v %+v", err, res)
 	}
 }

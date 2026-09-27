@@ -392,11 +392,14 @@ func (s *Server) addAirport(w http.ResponseWriter, r *http.Request) {
 	body.Content = strings.TrimSpace(body.Content)
 	name := strings.TrimSpace(body.Name)
 	insecure := false
+	warning := ""
 	if body.Content != "" {
-		if _, err := sub.Parse([]byte(body.Content), ""); err != nil {
-			writeErr(w, http.StatusBadRequest, "粘贴的内容里没有解析出节点：请粘贴 Clash 配置（含 proxies:）或节点链接")
+		res, err := sub.Parse([]byte(body.Content), "")
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "粘贴的内容里没有可用的节点："+err.Error())
 			return
 		}
+		warning = res.Report.Describe()
 		body.URL = ""
 		if name == "" {
 			name = "手动导入"
@@ -427,6 +430,10 @@ func (s *Server) addAirport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.background("测速", s.App.TestNodes)
+	if warning != "" {
+		writeJSON(w, map[string]any{"id": id, "warning": "已导入。另外：" + warning})
+		return
+	}
 	writeJSON(w, map[string]any{"id": id})
 }
 
@@ -457,7 +464,7 @@ func (s *Server) updateAirport(w http.ResponseWriter, r *http.Request) {
 	if body.Content != nil {
 		c := strings.TrimSpace(*body.Content)
 		if _, err := sub.Parse([]byte(c), ""); err != nil {
-			writeErr(w, http.StatusBadRequest, "粘贴的内容里没有解析出节点")
+			writeErr(w, http.StatusBadRequest, "粘贴的内容里没有可用的节点："+err.Error())
 			return
 		}
 		if err := s.App.Store.UpdateAirportContent(id, c); err != nil {

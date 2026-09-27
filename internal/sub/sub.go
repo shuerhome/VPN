@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -60,6 +61,7 @@ type Result struct {
 	Nodes   []Node
 	Skipped int      // 被过滤掉的「剩余流量 / 到期」之类的说明节点
 	Notices []string // 这些说明节点的名字
+	Report  Report   // 被跳过的协议、在线链接
 }
 
 // IsIPHost 判断订阅地址是不是纯 IP，这类地址通常是自签证书。
@@ -123,10 +125,11 @@ func Parse(body []byte, userinfo string) (*Result, error) {
 	if userinfo != "" {
 		res.Info, res.HasInfo = ParseUserInfo(userinfo)
 	}
-	nodes, err := ParseBody(body)
+	nodes, rep, err := parseBodyReport(body)
 	if err != nil {
 		return nil, err
 	}
+	res.Report = rep
 	for _, n := range nodes {
 		if isInfoNode(n) {
 			if !res.HasInfo {
@@ -139,6 +142,9 @@ func Parse(body []byte, userinfo string) (*Result, error) {
 		res.Nodes = append(res.Nodes, n)
 	}
 	if len(res.Nodes) == 0 {
+		if msg := rep.Describe(); msg != "" {
+			return nil, errors.New(msg)
+		}
 		return nil, errors.New("订阅里没有解析出可用节点")
 	}
 	return res, nil
@@ -216,19 +222,58 @@ func ParseUserInfo(h string) (Info, bool) {
 
 // ParseBody 依次尝试 Clash YAML、Base64 节点列表、明文节点列表。
 func ParseBody(body []byte) ([]Node, error) {
-	text := strings.TrimSpace(strings.TrimPrefix(string(body), "\uFEFF"))
-	if strings.Contains(text, "proxies:") {
-		var doc struct {
-			Proxies []map[string]any `yaml:"proxies"`
+	nodes, _, err := parseBodyReport(body)
+	return nodes, err
+}
+
+// Report 记录解析时被跳过的内容，用来给出明白的提示。
+type Report struct {
+	Unsupported map[string]int // 不支持的协议 → 节点数（如官方客户端自有协议）
+	Providers   []string       // 配置里的 proxy-providers 在线链接
+}
+
+func (r Report) Describe() string {
+	var parts []string
+	if len(r.Unsupported) > 0 {
+		var types []string
+		total := 0
+		for t, n := range r.Unsupported {
+			types = append(types, fmt.Sprintf("%s（%d 个）", t, n))
+			total += n
 		}
-		if err := yaml.Unmarshal([]byte(text), &doc); err == nil && len(doc.Proxies) > 0 {
+		sort.Strings(types)
+		parts = append(parts, fmt.Sprintf("有 %d 个节点的协议是 %s，Stash 和小火箭都不支持（可能是官方客户端自己的协议），已跳过", total, strings.Join(types, "、")))
+	}
+	if len(r.Providers) > 0 {
+		parts = append(parts, "这份配置的节点来自在线链接（proxy-providers）："+strings.Join(r.Providers, "、")+"。可以把这个链接当作订阅链接添加")
+	}
+	return strings.Join(parts, "；")
+}
+
+func parseBodyReport(body []byte) ([]Node, Report, error) {
+	rep := Report{Unsupported: map[string]int{}}
+	text := strings.TrimSpace(strings.TrimPrefix(string(body), "\uFEFF"))
+	if strings.Contains(text, "proxies:") || strings.Contains(text, "proxy-providers:") {
+		var doc struct {
+			Proxies   []map[string]any          `yaml:"proxies"`
+			Providers map[string]map[string]any `yaml:"proxy-providers"`
+		}
+		if err := yaml.Unmarshal([]byte(text), &doc); err == nil && (len(doc.Proxies) > 0 || len(doc.Providers) > 0) {
 			var out []Node
 			for _, p := range doc.Proxies {
 				if n, ok := fromClash(p); ok {
 					out = append(out, n)
+				} else if typ, _ := p["type"].(string); typ != "" && !supported[typ] {
+					rep.Unsupported[typ]++
 				}
 			}
-			return dedupe(out), nil
+			for _, pv := range doc.Providers {
+				if u, _ := pv["url"].(string); strings.HasPrefix(u, "http") {
+					rep.Providers = append(rep.Providers, u)
+				}
+			}
+			sort.Strings(rep.Providers)
+			return dedupe(out), rep, nil
 		}
 	}
 	if !strings.Contains(text, "://") {
@@ -246,12 +291,17 @@ func ParseBody(body []byte) ([]Node, error) {
 			if n, ok := fromClash(m); ok {
 				out = append(out, n)
 			}
+		} else if scheme, _, found := strings.Cut(line, "://"); found && len(scheme) < 20 {
+			rep.Unsupported[strings.ToLower(scheme)]++
 		}
 	}
 	if len(out) == 0 {
-		return nil, errors.New("看不懂订阅内容：既不是 Clash 配置，也不是节点链接列表")
+		if msg := rep.Describe(); msg != "" {
+			return nil, rep, errors.New(msg)
+		}
+		return nil, rep, errors.New("看不懂订阅内容：既不是 Clash 配置，也不是节点链接列表")
 	}
-	return dedupe(out), nil
+	return dedupe(out), rep, nil
 }
 
 var supported = map[string]bool{

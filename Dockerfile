@@ -2,7 +2,8 @@
 FROM golang:1.24-bookworm AS mihomo
 ARG MIHOMO_VERSION=v1.19.31
 WORKDIR /tmp
-RUN go mod download -json github.com/metacubex/mihomo@${MIHOMO_VERSION} > m.json \
+# 下载失败时错误只写在 m.json 里，打印出来才看得到原因
+RUN (go mod download -json github.com/metacubex/mihomo@${MIHOMO_VERSION} > m.json || { cat m.json; exit 1; }) \
  && cp -r "$(sed -n 's/.*"Dir": "\([^"]*\)".*/\1/p' m.json)" /src \
  && chmod -R u+w /src
 WORKDIR /src

@@ -29,10 +29,11 @@
 ### 1. 在 Cloudflare 创建隧道
 
 1. 登录 Cloudflare → **Zero Trust** → **Networks** → **Tunnels** → **Create a tunnel**，类型选 **Cloudflared**，起个名字。
-2. 安装方式页面里会出现一串 `eyJ...` 开头的 **Token**，复制下来（不用在服务器上按它的命令安装，我们的脚本会用 Docker 跑）。
-3. 下一步 **Public Hostname**：
-   - Subdomain：例如 `panel`，Domain：选你的域名
-   - Service：Type 选 `HTTP`，URL 填 `panel:8080`
+2. 安装方式页面里有一条安装命令，里面有一串 `eyJ...` 开头的 **Token**。复制这串 Token（整条命令也行，安装脚本会自动取出 Token）；不要在服务器上执行那条命令。
+3. 下一步 **已发布的应用程序 / Public Hostname**：
+   - 子域：例如 `panel`；域：选你的域名
+   - **服务 URL：`http://panel:8080`**（旧版页面分两栏时：Type 选 `HTTP`，URL 填 `panel:8080`）
+   - 不要填 `localhost` 或你的域名，也不要用 `https`：隧道和面板都在 Docker 里，`panel` 是面板容器的名字。
 4. 保存。
 
 ### 2. 在 VPS 上安装
@@ -47,7 +48,9 @@ bash deploy/install.sh
 
 > 仓库是私有的话，`git clone` 时用 GitHub 用户名 + [Personal Access Token](https://github.com/settings/tokens) 作为密码。
 
-脚本会问四个问题：面板域名、Tunnel Token、VPS 公网 IP（默认自动检测）、中转端口（默认 443）。然后自动安装 Docker、生成密码和加密密钥、编译并启动。结束时会打印**登录密码**。
+脚本会问五个问题：面板域名、Tunnel Token、VPS 公网 IP（默认自动检测）、中转端口（默认 443，被占用时会建议别的端口）、Telegram 机器人 Token（可跳过）。然后自动安装 Docker、生成密码和加密密钥、编译并启动，最后从外网打开一次面板确认能访问。结束时会打印**登录密码**（之后可以用 `grep PANEL_PASSWORD /opt/luodi/.env` 查看）。
+
+网页终端容易断线，建议先 `apt-get install -y tmux && tmux new -s install` 再运行；断了用 `tmux attach -t install` 回来。
 
 如果 Hostinger 控制台里开了防火墙，放行中转端口（默认 `443/tcp`）。
 
@@ -63,18 +66,29 @@ bash deploy/install.sh
 ### Telegram 通知（可选）
 
 1. Telegram 里找 **@BotFather** → 发 `/newbot` → 按提示起名，拿到 Token。
-2. 安装时填入；或之后在 `/opt/luodi/.env` 里加 `TG_BOT_TOKEN=你的Token`，再执行 `docker compose up -d`。
+2. 安装时填入；或之后在 `/opt/luodi/.env` 里加 `TG_BOT_TOKEN=你的Token`，再执行 `bash deploy/install.sh`。
 3. 面板「设置」页会显示一个绑定码，在 Telegram 里给机器人发 `/bind 绑定码`。只有绑定的这个聊天能收到通知、下命令。
 
 ### 日常维护
 
 ```bash
 cd /opt/luodi
+docker compose ps -a                  # 看两个容器是否都是 Up
 docker compose logs -f panel          # 看日志
-git pull && docker compose up -d --build   # 更新
+git pull && bash deploy/install.sh    # 更新（新镜像编译成功后才替换正在运行的容器）
 ```
 
 **备份** `/opt/luodi/.env` 和 `/opt/luodi/data/`。`.env` 里的 `SECRET_KEY` 丢了，数据库里加密的密码就解不开了。
+
+### 常见问题
+
+| 现象 | 原因和处理 |
+|---|---|
+| 打开面板显示 Cloudflare **502 Bad gateway** | 隧道连上了但找不到面板：Cloudflare 里「服务 URL」没填成 `http://panel:8080`。 |
+| 显示 **1033** | 隧道没连上：`.env` 里的 `TUNNEL_TOKEN` 不完整，改好后运行 `bash deploy/install.sh`。 |
+| `docker compose ps` 什么都没有 | 用 `docker compose ps -a` 看。状态是 Created 一般是端口被占用，重新运行 `bash deploy/install.sh` 会自动换端口。 |
+| 面板一直 Restarting，日志说「数据目录不可写」 | `cd /opt/luodi && chown -R 10001:10001 data && docker compose restart panel` |
+| 手机扫码后连不上 | Hostinger 控制台防火墙没放行中转端口（`.env` 里的 `RELAY_PORT`，默认 443/tcp）。 |
 
 ## 配置项（`.env`）
 
@@ -88,6 +102,7 @@ git pull && docker compose up -d --build   # 更新
 | `RELAY_PORT` | 中转对外端口 | `443` |
 | `REALITY_SNI` | Reality 伪装的网站 | `www.microsoft.com` |
 | `TG_BOT_TOKEN` | Telegram 机器人 Token | 空则不开启通知 |
+| `PANEL_LOCAL_PORT` | 面板在本机的调试端口（隧道不经过它），安装脚本自动挑选 | `18080` |
 | `SYNC_EVERY` / `CHECK_EVERY` | 订阅同步 / 链路检测间隔 | `30m` / `15m` |
 | `CHECK_URLS` | 返回出口IP的检测接口，逗号分隔 | ipify、ifconfig.me、icanhazip |
 

@@ -64,6 +64,13 @@ func main() {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		log.Fatal(err)
 	}
+	// 数据目录不可写时 SQLite 只会报一个误导人的 "out of memory (14)"，先自己检查一遍
+	if f, err := os.CreateTemp(dataDir, ".probe-*"); err != nil {
+		log.Fatalf("数据目录 %s 不可写（当前用户 uid=%d）：%v。在服务器上执行：cd /opt/luodi && chown -R 10001:10001 data && docker compose restart panel", dataDir, os.Getuid(), err)
+	} else {
+		f.Close()
+		os.Remove(f.Name())
+	}
 	box, err := crypt.Load(os.Getenv("SECRET_KEY"), dataDir)
 	if err != nil {
 		log.Fatal(err)

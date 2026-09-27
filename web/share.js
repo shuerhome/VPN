@@ -3,6 +3,26 @@
   'use strict';
   var btn = document.getElementById('selfcheck');
   var out = document.getElementById('selfcheck-result');
+
+  // 「复制」按钮：复制不了（非 HTTPS 或被拒绝）时选中文字，方便长按复制
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest && ev.target.closest('[data-copy]');
+    if (!b) return;
+    var text = b.getAttribute('data-copy');
+    var select = function () {
+      var code = b.parentNode.querySelector('code');
+      if (!code) return;
+      var r = document.createRange(); r.selectNodeContents(code);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    };
+    var done = function () {
+      b.textContent = '已复制';
+      clearTimeout(b._t);
+      b._t = setTimeout(function () { b.textContent = '复制'; }, 1600);
+    };
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, select); else select();
+  });
+
   if (!btn || !out) return;
 
   // 通过 STUN 拿到本机对外的公网IP（srflx 候选）。UDP 没走代理时这里会露出真实IP。
@@ -63,11 +83,13 @@
     }).then(function (r) { return r.json(); }).then(function (d) {
       if (d.error) throw new Error(d.error);
       render(d);
+      out.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }).catch(function (e) {
       out.innerHTML = '<div class="verdict bad">检测失败：' + esc(e.message) + '</div>';
     }).then(function () {
       btn.disabled = false;
       btn.textContent = '重新检测';
+      btn.classList.add('alt');
     });
   });
 })();

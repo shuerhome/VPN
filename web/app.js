@@ -4,6 +4,8 @@
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const ipify = s => esc(s).replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '<span class="ip">$&</span>');
+  const nodeName = n => n.country ? n.name.replace(/^\p{Regional_Indicator}{2}\s*/u, '') : n.name;
 
   // 脚本出错时给个提示，而不是按钮点了没反应（常见于刚更新面板、浏览器还拿着旧文件）
   window.addEventListener('error', () => {
@@ -73,7 +75,7 @@
     const o = c.online || {};
     if (o.online && (o.ips || []).length > 1) return '<span class="online multi">' + o.ips.length + ' 个IP同时在用</span>';
     if (o.online) return '<span class="online on">在线</span>';
-    return '<span class="online">' + (c.last_seen ? ago(c.last_seen) + '在线' : '未连接过') + '</span>';
+    return '<span class="online">' + (c.last_seen ? '离线 · ' + ago(c.last_seen) : '未连接过') + '</span>';
   }
   function gb(bytes) { return (bytes / 1073741824).toFixed(bytes >= 1073741824 * 100 ? 0 : 2); }
   function dateOf(ts) {
@@ -111,7 +113,7 @@
     let items = [];
     try { items = JSON.parse(c.selfcheck || '[]'); } catch (e) { /* 旧数据 */ }
     const bad = items.filter(i => i.ok === false);
-    if (bad.length) return { s: 'bad', t: bad.map(i => i.title).join('、'), d: (bad[0].detail || '') + ' · ' + ago(c.selfcheck_at) };
+    if (bad.length) return { s: 'bad', t: bad.map(i => i.title).join('、'), d: (bad[0].detail || '') + ' · ' + ago(c.selfcheck_at), first: bad[0].title, n: bad.length };
     const exit = items.find(i => i.key === 'ip');
     return { s: 'ok', t: '通过' + (exit ? ' · 出口 ' + exit.detail : ''), d: '出口IP、时区、语言、WebRTC 都正常 · ' + ago(c.selfcheck_at) };
   }
@@ -124,7 +126,7 @@
     const issues = [];
     [relay, air].forEach((p, i) => { if (p.s === 'bad') issues.push({ s: 'bad', t: (i ? 'Stash 链路：' : '中转：') + p.t }); });
     const self = selfPath(c);
-    if (self.s === 'bad') issues.unshift({ s: 'bad', t: '手机自检：' + self.t });
+    if (self.s === 'bad') issues.unshift({ s: 'bad', t: '手机自检：' + self.first + (self.n > 1 ? ' 等 ' + self.n + ' 项' : '') });
     if (ip.hosting) issues.push({ s: 'warn', t: '落地IP 是机房IP，不建议用于社媒' });
     const d = daysUntil(ip.expire);
     if (d != null && d <= 7) issues.push({ s: 'warn', t: d < 0 ? '住宅IP 已过期' : '住宅IP ' + d + ' 天后到期' });
@@ -149,7 +151,9 @@
     $('#navNodes').textContent = S.data.nodes.length;
     $('#navSettings').textContent = S.data.telegram.bound ? '' : (S.data.telegram.enabled ? '待绑定' : '');
     const r = S.data.relay;
-    $('#relayStatus').textContent = r.enabled ? '中转 ' + r.host + ':' + r.port + ' · ' + (r.status || '启动中') : '中转未开启';
+    $('#relayStatus').innerHTML = r.enabled
+      ? '<span class="online' + (r.status === '运行中' ? ' on' : '') + '">中转' + esc(r.status || '启动中') + '</span><span class="mono">' + esc(r.host) + ':' + r.port + '</span>'
+      : '<span class="online">中转未开启</span>';
     $('#busyLine').hidden = !S.data.running;
   }
 
@@ -157,12 +161,9 @@
     const ev = S.data.chains.map(evaluate);
     const n = s => ev.filter(e => e.status === s).length;
     const expiring = S.data.ips.filter(r => { const d = daysUntil(r.expire); return d != null && d <= 7; }).length;
-    $('#summary').innerHTML =
-      '<div class="stat"><span class="num">' + S.data.chains.length + '</span><span class="lbl">条链路</span></div>' +
-      '<div class="stat ok"><span class="num">' + n('ok') + '</span><span class="lbl">正常</span></div>' +
-      '<div class="stat warn"><span class="num">' + n('warn') + '</span><span class="lbl">需注意</span></div>' +
-      '<div class="stat bad"><span class="num">' + n('bad') + '</span><span class="lbl">故障</span></div>' +
-      '<div class="stat warn"><span class="num">' + expiring + '</span><span class="lbl">个住宅IP 7 天内到期</span></div>';
+    const stat = (cls, v, lbl) => '<div class="stat ' + (v ? cls : 'zero') + '"><span class="num">' + v + '</span><span class="lbl">' + lbl + '</span></div>';
+    $('#summary').innerHTML = stat('', S.data.chains.length, '条链路') + stat('ok', n('ok'), '正常') + stat('warn', n('warn'), '需注意') + stat('bad', n('bad'), '故障') +
+      (expiring ? '<a class="stat warn aside" href="#ips"><span class="num">' + expiring + '</span><span class="lbl">个住宅IP 7 天内到期</span></a>' : '');
   }
 
   function renderChains() {
@@ -172,7 +173,7 @@
       const hasIp = S.data.ips.length > 0;
       list.innerHTML = '<li class="empty"><b>还没有链路</b><span>' + (hasIp ? '点「新建链路」，给一台 iPhone 绑定一个住宅IP。' : '先去「住宅IP」粘贴你的静态住宅IP，再回来新建链路。') + '</span>' +
         (hasIp ? '<button class="btn primary" type="button" data-act="new-chain">新建链路</button>' : '<a class="btn primary" href="#ips">添加住宅IP</a>') + '</li>';
-      $('#detail').innerHTML = '<section><span class="eyebrow">怎么用</span><ol class="export-note" style="margin:0;padding-left:18px;display:grid;gap:4px">' +
+      $('#detail').innerHTML = '<section><h3 class="sec-h">怎么用</h3><ol class="export-note">' +
         '<li>「机场订阅」里添加机场订阅链接（Stash 链路需要）。</li><li>「住宅IP」里粘贴静态住宅IP。</li><li>新建链路，绑定设备和IP。</li><li>用 iPhone 扫链路详情里的二维码。</li></ol></section>';
       return;
     }
@@ -180,14 +181,21 @@
     list.innerHTML = S.data.chains.map(c => {
       const e = evaluate(c);
       const top = e.issues[0];
-      const foot = top ? '<div class="row-foot ' + top.s + '">' + esc(top.t) + '</div>'
-        : '<div class="row-foot">' + esc(e.status === 'pending' ? '检测中…' : (S.data.relay.enabled ? e.relay : e.air).t + ' · 与绑定一致') + '</div>';
+      const tone = !top ? '' : e.status === 'bad' ? 'bad' : 'warn';
+      const more = e.issues.length > 1 ? '<span class="more">另有 ' + (e.issues.length - 1) + ' 项</span>' : '';
+      const checkedAt = S.data.relay.enabled ? e.ip.checked_at : c.check_at;
+      const msg = top ? '<span class="msg ' + tone + '">' + esc(top.t) + more + '</span>'
+        : '<span class="msg">' + (e.status === 'pending' ? '检测中…' : '出口一致 · ' + ago(checkedAt)) + '</span>';
+      const accts = (c.accounts || []).map(a => esc(a.p + ' ' + a.h)).join(' · ');
+      const foot = '<div class="row-foot">' + msg + (accts ? '<span class="accts">' + accts + '</span>' : '') + '</div>';
       const f = e.fronts[0];
       const front = '<div class="hop front' + (f ? '' : ' down') + '"><span class="k">前置 · ' + frontLabel(c, e) + '</span><span class="v">' + esc(f ? f.name : '无可用节点') + '</span></div>';
-      const land = '<div class="hop land"><span class="k">落地 · ' + esc(ipKind(e.ip) || '住宅IP') + '</span><span class="v"><span class="ip">' + esc(e.ip.host) + '</span> ' + esc(e.ip.city || '') + '</span></div>';
+      const exit = S.data.relay.enabled ? (e.ip.check_error ? '' : e.ip.last_exit) : (c.check_error ? '' : c.check_exit);
+      const moved = !!exit && exit !== expected(e.ip);
+      const land = '<div class="hop land' + (moved || e.ip.check_error ? ' bad' : '') + '"><span class="k">落地 · ' + esc(ipKind(e.ip) || '住宅IP') + '</span><span class="v"><span class="ip' + (moved ? ' mismatch' : '') + '">' + esc(moved ? exit : expected(e.ip)) + '</span> ' + esc(e.ip.city || '') + '</span></div>';
       const ms = c.check_ms ? c.check_ms + 'ms' : '';
       return '<li class="chain-row" role="option" tabindex="0" data-id="' + c.id + '" aria-selected="' + (c.id === S.selected) + '">' +
-        '<div class="row-top"><span class="dev">' + esc(c.device) + '</span>' + (S.data.relay.enabled ? onlineBadge(c) : '') + '<span class="accts">' + (c.accounts || []).map(a => esc(a.p + ' ' + a.h)).join(' · ') + '</span>' + pill(e.status) + '</div>' +
+        '<div class="row-top"><span class="dev">' + esc(c.device) + '</span>' + (S.data.relay.enabled ? onlineBadge(c) : '') + pill(e.status) + '</div>' +
         '<div class="hops">' + front + '<div class="wire' + (e.air.s === 'bad' ? ' broken' : '') + '"><span>' + ms + '</span></div>' + land + '</div>' +
         foot + '</li>';
     }).join('');
@@ -200,23 +208,23 @@
     const e = evaluate(c);
     const ip = e.ip;
     const icon = { ok: '✓', warn: '!', bad: '×', info: 'i', pending: '…' };
-    const pathRow = (label, p) => '<div class="path"><span class="pill ' + p.s + '">' + label + '</span><div><div class="t">' + esc(p.t) + '</div><div class="d">' + esc(p.d) + '</div></div></div>';
+    const pathRow = (label, p) => '<div class="path ' + p.s + '"><span class="pill ' + p.s + '">' + label + '</span><div><div class="t">' + ipify(p.t) + '</div><div class="d">' + ipify(p.d) + '</div></div></div>';
     const checks = [];
     if (ip.country_code) checks.push(ip.hosting
       ? { s: 'bad', t: 'IP 类型：机房', d: ip.asn + ' ' + ip.isp + ' 属于数据中心网段，社媒容易识别' }
       : { s: 'ok', t: 'IP 类型：' + ipKind(ip), d: [ip.asn, ip.isp, ip.proxy_flag ? '被标记为代理' : ''].filter(Boolean).join(' · ') });
-    checks.push({ s: 'ok', t: '断线不回落', d: '链路断了就断网，不会漏出机场IP或 VPS 的IP' });
     const d = daysUntil(ip.expire);
     if (d != null) checks.push(d <= 7 ? { s: 'warn', t: d < 0 ? '已过期' : d + ' 天后到期', d: '到期日 ' + ip.expire } : { s: 'ok', t: '有效期还有 ' + d + ' 天', d: '到期日 ' + ip.expire });
     else checks.push({ s: 'info', t: '没填到期日', d: '在「住宅IP」里填上，快到期时会提醒' });
-    if (ip.timezone) checks.push({ s: 'info', t: '手机设置请对齐', d: '时区 ' + ip.timezone + ' · 语言 ' + (LANG[ip.country_code] || '当地语言') + ' · 地区 ' + ip.country + '。这几项在 iPhone 设置里手动改。' });
+    if (ip.timezone) checks.push({ s: 'info', t: '手机设置请对齐', html: '<dl class="kv"><dt>时区</dt><dd class="mono">' + esc(ip.timezone) + '</dd><dt>语言</dt><dd>' + esc(LANG[ip.country_code] || '当地语言') + '</dd><dt>地区</dt><dd>' + esc(ip.country) + '</dd></dl><div class="d">在 iPhone「设置 → 通用」里手动改</div>' });
 
     const tabs = [];
-    if (S.data.relay.enabled) tabs.push(['relay', '小火箭扫码（推荐）']);
+    if (S.data.relay.enabled) tabs.push(['relay', '小火箭扫码<span class="tab-tag">推荐</span>']);
     tabs.push(['stash', 'Stash']);
     tabs.push(['manual', '手动代理链']);
     if (!tabs.some(t => t[0] === S.tab)) S.tab = tabs[0][0];
 
+    const multi = (c.online || {}).ips || [];
     $('#detail').innerHTML =
       '<section>' +
         '<div class="detail-head"><h2>' + esc(c.device) + '</h2>' + pill(e.status) +
@@ -225,18 +233,19 @@
             '<button class="btn small" type="button" data-act="edit-chain" data-id="' + c.id + '">编辑</button>' +
           '</div></div>' +
         '<div class="acct-list">' + ((c.accounts || []).map(a => '<span class="acct"><b>' + esc(a.p) + '</b>' + esc(a.h) + '</span>').join('') || '<span class="hint">没有填账号</span>') + '</div>' +
+        (S.data.relay.enabled && multi.length > 1 ? '<div class="alert-box">这个二维码正被 ' + multi.length + ' 个IP同时使用：' + multi.map(esc).join('、') + '。如果不是你安排的，点下方「重置二维码」。</div>' : '') +
       '</section>' +
-      usageSection(c) +
-      '<section aria-label="出口检测"><span class="eyebrow">出口检测 · 平台看到的IP应当始终是 <span class="ip">' + esc(expected(ip)) + '</span></span><div class="paths">' +
+      '<section aria-label="出口检测"><h3 class="sec-h">出口检测<span class="aside">平台应看到 <span class="ip">' + esc(expected(ip)) + '</span></span></h3><div class="paths">' +
         pathRow('手机自检', e.self) + (S.data.relay.enabled ? pathRow('中转', e.relay) : '') + pathRow('Stash', e.air) +
       '</div>' +
       ((e.relay.t === '出口IP变了' || e.air.t === '出口IP不一致') ? '<div class="code-tools"><span class="hint warn">确认是供应商换了线路、新IP可以用，再点右边。</span><button class="btn small" type="button" data-act="baseline" data-id="' + ip.id + '">以当前出口为准</button></div>' : '') +
       '</section>' +
-      '<section aria-label="环境检查"><span class="eyebrow">环境检查</span><ul class="checks">' +
-        checks.map(k => '<li class="' + k.s + '"><span class="ic" aria-hidden="true">' + icon[k.s] + '</span><div><div class="t">' + esc(k.t) + '</div><div class="d">' + esc(k.d) + '</div></div></li>').join('') +
+      '<section aria-label="环境检查"><h3 class="sec-h">环境检查</h3><ul class="checks">' +
+        checks.map(k => '<li class="' + k.s + '"><span class="ic" aria-hidden="true">' + icon[k.s] + '</span><div><div class="t">' + esc(k.t) + '</div>' + (k.html || '<div class="d">' + esc(k.d) + '</div>') + '</div></li>').join('') +
       '</ul></section>' +
-      '<section aria-label="导入到手机"><span class="eyebrow">导入到手机</span>' +
-        '<div class="path"><span class="pill ok">导入页</span><div><div class="t">发给操作这台手机的同事</div><div class="d">打开就是二维码和手机设置说明，不需要面板密码。只发给这台手机的使用者。</div></div>' +
+      usageSection(c) +
+      '<section aria-label="导入到手机"><h3 class="sec-h">导入到手机</h3>' +
+        '<div class="path share"><div><div class="t">导入页 · 发给操作这台手机的同事</div><div class="d">打开就是二维码和手机设置说明，不需要面板密码。只发给这台手机的使用者。</div></div>' +
           '<div class="actions"><button class="btn small" type="button" data-copy="' + esc(c.page_url) + '">复制链接</button><a class="btn small" href="' + esc(c.page_url) + '" target="_blank" rel="noopener">打开</a></div></div>' +
         '<div class="tabs" role="tablist">' + tabs.map(t => '<button type="button" role="tab" data-tab="' + t[0] + '" aria-selected="' + (S.tab === t[0]) + '">' + t[1] + '</button>').join('') + '</div>' +
         '<div id="exportPane"></div>' +
@@ -249,16 +258,12 @@
 
   function usageSection(c) {
     if (!S.data.relay.enabled) return '';
-    const o = c.online || {};
-    const t = c.traffic || {};
-    const ips = o.ips || [];
-    return '<section aria-label="使用情况"><span class="eyebrow">使用情况（中转）</span>' +
-      (ips.length > 1 ? '<div class="alert-box">这个二维码正被 ' + ips.length + ' 个IP同时使用：' + ips.map(esc).join('、') + '。如果不是你安排的，点下方「重置二维码」。</div>' : '') +
-      '<div class="usage">' +
-        '<div><b>' + (o.online ? '在线' : '离线') + '</b><span>' + usageLine(c, o, ips) + '</span></div>' +
-        '<div><b>' + human((t.today_up || 0) + (t.today_down || 0)) + '</b><span>今天 · ↑' + human(t.today_up) + ' ↓' + human(t.today_down) + '</span></div>' +
-        '<div><b>' + human((t.d30_up || 0) + (t.d30_down || 0)) + '</b><span>近 30 天</span></div>' +
-      '</div></section>';
+    const o = c.online || {}, t = c.traffic || {}, ips = o.ips || [];
+    return '<section aria-label="使用情况"><h3 class="sec-h">使用情况<span class="aside">经中转</span></h3><div class="usage">' +
+      '<div><span class="lbl">状态</span><b class="' + (o.online ? 'on' : 'off') + '">' + (o.online ? '在线' : '离线') + '</b><span>' + usageLine(c, o, ips) + '</span></div>' +
+      '<div><span class="lbl">今天</span><b>' + human((t.today_up || 0) + (t.today_down || 0)) + '</b><span><span class="nw">↑' + human(t.today_up) + '</span> <span class="nw">↓' + human(t.today_down) + '</span></span></div>' +
+      '<div><span class="lbl">近 30 天</span><b>' + human((t.d30_up || 0) + (t.d30_down || 0)) + '</b></div>' +
+    '</div></section>';
   }
 
   function usageLine(c, o, ips) {
@@ -276,7 +281,7 @@
     const r = S.data.relay;
     let tgBody;
     if (!tg.enabled) {
-      tgBody = '<p class="hint">还没配置。步骤：</p><ol class="export-note" style="margin:0;padding-left:18px;display:grid;gap:4px">' +
+      tgBody = '<p class="hint">还没配置。步骤：</p><ol class="export-note">' +
         '<li>在 Telegram 里找 <b>@BotFather</b>，发送 /newbot，按提示起名，拿到一串 Token。</li>' +
         '<li>在服务器上编辑 <span class="mono">/opt/luodi/.env</span>，加一行 <span class="mono">TG_BOT_TOKEN=你的Token</span>。</li>' +
         '<li>执行 <span class="mono">cd /opt/luodi && docker compose up -d</span> 重启面板，回到这里绑定。</li></ol>';
@@ -286,7 +291,7 @@
         '<p class="hint">绑定码只能用一次。绑定后这个页面会自动刷新。</p>';
     } else {
       tgBody = '<p>已绑定' + (tg.bot ? ' <b>@' + esc(tg.bot) + '</b>' : '') + '。会通知这些事：</p>' +
-        '<ul class="export-note" style="margin:0;padding-left:18px;display:grid;gap:2px"><li>住宅IP连不上、出口IP变了，以及恢复</li><li>二维码被多个IP同时使用</li><li>住宅IP、机场 7 天内到期；机场流量用到 90%</li><li>机场订阅同步失败</li><li>每天凌晨 4 点自动备份数据库</li></ul>' +
+        '<ul class="export-note"><li>住宅IP连不上、出口IP变了，以及恢复</li><li>二维码被多个IP同时使用</li><li>住宅IP、机场 7 天内到期；机场流量用到 90%</li><li>机场订阅同步失败</li><li>每天凌晨 4 点自动备份数据库</li></ul>' +
         '<p class="hint">在 Telegram 里发 /status 看链路概况，/backup 立即备份。</p>' +
         '<div class="actions"><button class="btn small" type="button" data-act="tg-test">发测试消息</button><button class="btn small danger" type="button" data-act="tg-unbind">解除绑定</button></div>';
     }
@@ -308,7 +313,7 @@
       const q = qrcode(0, 'M');
       q.addData(text);
       q.make();
-      return q.createSvgTag({ cellSize: 3, margin: 2, scalable: true });
+      return q.createSvgTag({ cellSize: 3, margin: 4, scalable: true });
     } catch (err) { return '内容太长，无法生成二维码'; }
   }
 
@@ -320,11 +325,11 @@
     const pane = $('#exportPane');
     if (!pane) return;
     if (S.tab === 'relay') {
-      pane.innerHTML = '<div class="export-grid"><div style="display:grid;gap:10px;min-width:0">' + copyRow(c.relay_link) +
-        '<div class="export-note">用小火箭扫右侧二维码（首页右上角的扫码图标），导入后选中这个节点、打开开关即可。Loon、Stash、Quantumult X 也能扫。' +
+      pane.innerHTML = '<div class="export-grid"><div class="export-col">' + copyRow(c.relay_link) +
+        '<div class="export-note">用小火箭扫二维码（首页右上角的扫码图标），导入后选中这个节点、打开开关即可。Loon、Stash、Quantumult X 也能扫。' +
         '<ol><li>手机 → 你的 VPS（' + esc(S.data.relay.host) + '）→ 住宅IP <b class="ip">' + esc(e.ip.host) + '</b> → 平台。</li>' +
         '<li>小火箭「全局路由」选「代理」；「设置」里打开「按需连接」，确认「UDP 转发」已开启。</li>' +
-        '<li>在这台手机上用 Safari 打开导入页，点「开始自检」，结果会显示在左边的「手机自检」。</li></ol></div></div>' +
+        '<li>在这台手机上用 Safari 打开导入页，点「开始自检」，结果会显示在上面的「手机自检」。</li></ol></div></div>' +
         '<div class="qr" aria-label="中转节点二维码">' + qrSvg(c.relay_link) + '</div></div>';
       return;
     }
@@ -336,9 +341,9 @@
     }
     if (S.tab === 'manual') {
       const f = e.fronts.find(n => n.delay_ms > 0) || e.fronts[0];
-      pane.innerHTML = '<div class="export-grid"><div style="display:grid;gap:10px;min-width:0">' + copyRow(cfg.rocket) +
+      pane.innerHTML = '<div class="export-grid"><div class="export-col">' + copyRow(cfg.rocket) +
         '<div class="export-note">不用中转、想在小火箭或 Loon 里自己建代理链时用：' +
-        '<ol><li>扫右侧二维码导入住宅IP节点，识别不了就手动填 IP、端口、账号、密码。</li>' +
+        '<ol><li>扫二维码导入住宅IP节点，识别不了就手动填 IP、端口、账号、密码。</li>' +
         '<li>在「代理链 / 链式代理」里依次加入：先机场节点 <b>' + esc(f ? f.name : '（先添加机场订阅）') + '</b>，再住宅IP <b class="ip">' + esc(e.ip.host) + '</b>。</li>' +
         '<li>全局路由选「代理」，选中这条代理链。</li></ol></div></div>' +
         '<div class="qr" aria-label="住宅IP节点二维码">' + qrSvg(cfg.rocket) + '</div></div>';
@@ -347,11 +352,11 @@
     // stash
     const shown = S.showPass ? cfg.clash : maskPass(cfg.clash, e.ip);
     pane.innerHTML = (cfg.error ? '<p class="hint warn">' + esc(cfg.error) + '</p>' : '') +
-      '<div class="export-grid"><div style="display:grid;gap:8px;min-width:0">' + copyRow(c.sub_url) +
+      '<div class="export-grid"><div class="export-col">' + copyRow(c.sub_url) +
       '<p class="export-note">Stash 扫码或粘贴订阅链接导入。走「手机 → 机场节点 → 住宅IP」，前置节点坏了自动切换，落地IP不变。面板改了配置，Stash 更新订阅就会同步。</p></div>' +
       '<div class="qr" aria-label="订阅二维码">' + qrSvg(c.sub_url) + '</div></div>' +
       (cfg.clash ? '<div class="code-tools"><span class="hint">配置预览</span><div class="actions">' +
-        '<div class="seg" role="group" aria-label="密码显示"><button type="button" data-act="pass" aria-pressed="' + !S.showPass + '">隐藏密码</button><button type="button" data-act="pass" aria-pressed="' + S.showPass + '">显示</button></div>' +
+        '<div class="seg" role="group" aria-label="密码显示"><button type="button" data-act="pass" data-v="0" aria-pressed="' + !S.showPass + '">隐藏</button><button type="button" data-act="pass" data-v="1" aria-pressed="' + S.showPass + '">显示</button></div>' +
         '<button class="btn small" type="button" data-act="copy-config" data-id="' + c.id + '">复制配置</button></div></div>' +
         '<pre class="config" id="configPre">' + highlight(shown) + '</pre>' : '');
   }
@@ -381,15 +386,15 @@
       const kind = r.country_code ? (r.hosting ? '<span class="pill bad">机房</span>' : r.mobile ? '<span class="pill ok">移动网络</span>' : '<span class="pill ok">住宅 / ISP</span>') + (r.proxy_flag ? '<span class="sub">被标记为代理</span>' : '') : '<span class="hint">—</span>';
       return '<tr>' +
         '<td><span class="ip">' + esc(r.host) + ':' + r.port + '</span><span class="sub">' + r.protocol.toUpperCase() + (r.username ? ' · ' + esc(r.username) : ' · 无认证') + (r.remark ? ' · ' + esc(r.remark) : '') + '</span></td>' +
-        '<td>' + exitCell + '</td><td>' + where + '</td><td>' + kind + '</td>' +
-        '<td><input type="date" value="' + esc(r.expire) + '" data-expire="' + r.id + '" aria-label="到期日"><span class="sub" style="color:' + (d != null && d <= 7 ? 'var(--warn)' : 'var(--muted)') + '">' + (d == null ? '未填写' : d < 0 ? '已过期' : d + ' 天后') + '</span></td>' +
-        '<td>' + (c ? esc(c.device) : '<span class="hint">空闲</span>') + '</td>' +
-        '<td class="mono">' + (c && c.traffic ? human((c.traffic.d30_up || 0) + (c.traffic.d30_down || 0)) : '<span class="hint">—</span>') + '</td>' +
+        '<td data-label="出口IP">' + exitCell + '</td><td data-label="地区 · 运营商">' + where + '</td><td data-label="类型">' + kind + '</td>' +
+        '<td data-label="到期"><input type="date"' + (r.expire ? '' : ' class="is-empty"') + ' value="' + esc(r.expire) + '" data-expire="' + r.id + '" aria-label="到期日"><span class="sub' + (d != null && d <= 7 ? ' warn' : '') + '">' + (d == null ? '未填写' : d < 0 ? '已过期' : d + ' 天后') + '</span></td>' +
+        '<td data-label="绑定设备">' + (c ? esc(c.device) : '<span class="hint">空闲</span>') + '</td>' +
+        '<td class="num" data-label="近 30 天流量">' + (c && c.traffic ? human((c.traffic.d30_up || 0) + (c.traffic.d30_down || 0)) : '<span class="hint">—</span>') + '</td>' +
         '<td><div class="row-actions"><button class="btn small" type="button" data-act="ip-check" data-id="' + r.id + '">检测</button>' +
           (c ? '' : '<button class="btn small danger" type="button" data-act="ip-delete" data-id="' + r.id + '">删除</button>') + '</div></td>' +
       '</tr>';
     }).join('');
-    $('#ipRows').innerHTML = rows || '<tr><td colspan="8" class="hint" style="text-align:center;padding:24px">还没有住宅IP，在上面粘贴添加。</td></tr>';
+    $('#ipRows').innerHTML = rows || '<tr><td colspan="8"><div class="empty"><b>还没有住宅IP</b><span>在上面粘贴供应商发来的内容，识别后加入。</span></div></td></tr>';
   }
 
   const F = { host: '#fHost', port: '#fPort', username: '#fUser', password: '#fPass', remark: '#fRemark', expire: '#fExpire' };
@@ -431,7 +436,7 @@
         r.warnings.map(w => '<div class="warn-line">' + esc(w) + '</div>').join('') +
       '</li>').join('') +
       errors.map(er => '<li class="err"><div class="fmt">没认出：' + esc(er.error) + '</div><div class="toks"><span class="tok">' + esc(er.raw.trim().slice(0, 60)) + '</span></div></li>').join('');
-    $('#parsed').innerHTML = html || '<li class="err"><div class="fmt" style="color:var(--muted)">粘贴后这里会显示识别结果，也可以直接在下面手动填写。</div></li>';
+    $('#parsed').innerHTML = html || '<li class="err placeholder"><div class="fmt">粘贴后这里会显示识别结果，也可以直接在下面手动填写。</div></li>';
     $('#addIps').textContent = records.length > 1 ? '全部加入IP库（' + records.length + ' 个）' : '加入IP库';
   }
 
@@ -455,7 +460,7 @@
       list = [r];
     }
     const btn = $('#addIps');
-    btn.disabled = true;
+    btn.disabled = true; btn.setAttribute('aria-busy', 'true');
     try {
       const res = await api('POST', '/api/ips', { records: list });
       $('#paste').value = '';
@@ -464,7 +469,7 @@
       fillFields(null, false);
       toast(res.added.length ? '已加入 ' + res.added.length + ' 个，正在检测出口IP和地区' + (res.duplicates ? '；' + res.duplicates + ' 个已存在' : '') : '都已经在IP库里了');
       await refresh();
-    } catch (err) { toast(err.message); } finally { btn.disabled = false; }
+    } catch (err) { toast(err.message); } finally { btn.disabled = false; btn.removeAttribute('aria-busy'); }
   }
 
   // ---------------- 渲染：机场 ----------------
@@ -481,10 +486,10 @@
         '<div class="air-top"><h3>' + esc(a.name) + '</h3><button class="btn small" type="button" data-act="air-sync" data-id="' + a.id + '">更新</button><button class="btn small danger" type="button" data-act="air-delete" data-id="' + a.id + '">删除</button></div>' +
         (a.manual ? '' : '<code>' + esc(a.url_masked) + '</code>') +
         '<div class="air-source">' + source + '</div>' +
-        (a.last_error ? '<span class="hint warn">' + esc(a.last_error) + '</span>' : '') +
-        '<div class="meter" title="已用流量"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
+        (a.last_error ? '<span class="hint warn" title="' + esc(a.last_error) + '">' + esc(a.last_error) + '</span>' : '') +
+        '<div class="meter' + (pct >= 90 ? ' warn' : '') + '" title="已用流量"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
         '<div class="air-stats">' +
-          '<div><b>' + (a.total ? gb(used) + ' / ' + gb(a.total) : '—') + '</b>GB 已用' + (a.total ? '，剩 ' + gb(a.total - used) : '') + '</div>' +
+          '<div><b>' + (a.total ? gb(used) + '<small> / ' + gb(a.total) + ' GB</small>' : '—') + '</b>' + (a.total ? '剩 ' + gb(a.total - used) + ' GB' : '流量未知') + '</div>' +
           '<div class="' + (d != null && d <= 10 ? 'warn' : '') + '"><b>' + (d == null ? '—' : dateOf(a.expire)) + '</b>' + (d == null ? '到期未知' : d + ' 天后到期') + '</div>' +
           '<div><b>' + a.nodes + '</b>个节点</div>' +
         '</div>' +
@@ -493,13 +498,14 @@
     }).join('');
     const pasting = S.airPaste;
     $('#airGrid').innerHTML = cards +
-      '<div class="panel air add"><span class="eyebrow">添加机场</span>' +
+      '<div class="panel air add"><h3>添加机场</h3>' +
       (pasting
         ? '<form id="airPasteForm"><textarea id="airContent" class="mono" rows="6" placeholder="把机场客户端里的 Clash 配置（含 proxies:）或节点链接整段粘贴进来" aria-label="节点配置" spellcheck="false" required></textarea>' +
           '<div class="row-actions"><input id="airPasteName" placeholder="名称（可选）" aria-label="名称"><button class="btn primary" type="submit" id="airPasteSubmit">导入</button></div></form>' +
           '<button class="linkish" type="button" data-act="air-mode">改用订阅链接</button>'
-        : '<form id="airForm"><input id="airName" placeholder="名称（可选）" aria-label="机场名称" style="flex:0 1 120px;font-family:inherit"><input id="airUrl" placeholder="粘贴订阅链接" aria-label="订阅链接" spellcheck="false" required>' +
-          '<label><input type="checkbox" id="airInsecure">忽略证书错误</label><button class="btn primary" type="submit" id="airSubmit">添加</button></form>' +
+        : '<form id="airForm" class="air-form"><input id="airUrl" placeholder="粘贴订阅链接 https://…" aria-label="订阅链接" spellcheck="false" autocomplete="off" required>' +
+          '<input id="airName" placeholder="名称（可选）" aria-label="机场名称" autocomplete="off"><button class="btn primary" type="submit" id="airSubmit">添加</button>' +
+          '<label class="check"><input type="checkbox" id="airInsecure">忽略证书错误</label></form>' +
           '<span class="hint">订阅地址是纯 IP（例如 https://45.x.x.x/…）时会自动勾选忽略证书错误。</span>' +
           '<button class="linkish" type="button" data-act="air-mode">订阅拿不到完整节点？改为粘贴节点配置</button>') +
       '</div>';
@@ -507,17 +513,17 @@
 
     const codes = Array.from(new Set(S.data.nodes.map(n => n.country || '??'))).sort();
     if (S.region !== 'all' && !codes.includes(S.region)) S.region = 'all';
-    $('#regionChips').innerHTML = ['all'].concat(codes).map(r => '<button type="button" data-region="' + esc(r) + '" aria-pressed="' + (S.region === r) + '">' + (r === 'all' ? '全部 ' + S.data.nodes.length : (r === '??' ? '未识别' : r) + ' ' + S.data.nodes.filter(n => (n.country || '??') === r).length) + '</button>').join('');
+    $('#regionChips').innerHTML = ['all'].concat(codes).map(r => '<button type="button" data-region="' + esc(r) + '" aria-pressed="' + (S.region === r) + '">' + (r === 'all' ? '全部' : r === '??' ? '未识别' : esc(r)) + '<span class="n">' + (r === 'all' ? S.data.nodes.length : S.data.nodes.filter(n => (n.country || '??') === r).length) + '</span></button>').join('');
 
     const useCount = {};
     S.data.chains.forEach(c => (c.fronts || []).forEach(id => { useCount[id] = (useCount[id] || 0) + 1; }));
     const rows = S.data.nodes.filter(n => S.region === 'all' || (n.country || '??') === S.region).map(n => {
-      const lat = n.delay_ms > 0 ? '<span class="lat"><span class="bar"><i style="width:' + Math.min(100, n.delay_ms / 3) + '%"></i></span>' + n.delay_ms + ' ms</span>'
-        : n.delay_ms < 0 ? '<span class="lat dead" title="从 VPS（海外）连不上。入口在国内的专线常见，手机上不一定有问题">VPS 连不上</span>' : '<span class="hint">未测</span>';
+      const lat = n.delay_ms > 0 ? '<span class="lat' + (n.delay_ms > 400 ? ' slow' : '') + '"><span class="bar"><i style="width:' + Math.min(100, n.delay_ms / 6) + '%"></i></span>' + n.delay_ms + ' ms</span>'
+        : n.delay_ms < 0 ? '<span class="lat dead" title="从 VPS（美国）测不通。入口在国内的专线节点常见，不代表手机上不能用">海外测不通</span>' : '<span class="hint">未测</span>';
       const air = airById(n.airport_id);
-      return '<tr><td>' + (n.country ? '<span class="tag cc">' + esc(n.country) + '</span> ' : '') + esc(n.name) + '</td><td>' + esc(air ? air.name : '') + '</td><td class="mono">' + esc(n.type) + '</td><td>' + lat + '</td><td>' + (useCount[n.id] ? useCount[n.id] + ' 条链路' : '<span class="hint">—</span>') + '</td></tr>';
+      return '<tr><td>' + (n.country ? '<span class="tag cc">' + esc(n.country) + '</span> ' : '') + esc(nodeName(n)) + '<span class="sub m-only">' + esc(air ? air.name : '') + ' · ' + esc(n.type) + (useCount[n.id] ? ' · ' + useCount[n.id] + ' 条链路在用' : '') + '</span></td><td>' + esc(air ? air.name : '') + '</td><td class="mono">' + esc(n.type) + '</td><td>' + lat + '</td><td>' + (useCount[n.id] ? useCount[n.id] + ' 条链路' : '<span class="hint">—</span>') + '</td></tr>';
     }).join('');
-    $('#nodeRows').innerHTML = rows || '<tr><td colspan="5" class="hint" style="text-align:center;padding:24px">添加机场订阅后，节点会显示在这里。</td></tr>';
+    $('#nodeRows').innerHTML = rows || '<tr><td colspan="5"><div class="empty"><b>还没有节点</b><span>添加机场订阅后，节点会显示在这里。</span></div></td></tr>';
   }
 
   function renderProbe() {
@@ -585,6 +591,7 @@
     const free = S.data.ips.find(r => !chainOfIp(r.id) && !r.hosting) || S.data.ips.find(r => !chainOfIp(r.id));
     if (free) $('#nIp').value = String(free.id);
     const noFree = !chain && !free;
+    if (noFree) $('#nIp').insertAdjacentHTML('afterbegin', '<option value="" selected disabled>没有空闲的住宅IP</option>');
     $('#sheetSubmit').disabled = noFree;
     if (noFree) $('#sheetErr').textContent = '没有空闲的住宅IP：每个IP只能绑一台设备。先去「住宅IP」页添加新的IP。';
     const alive = S.data.nodes.filter(n => n.delay_ms >= 0).sort((a, b) => (a.country || '').localeCompare(b.country || '') || a.delay_ms - b.delay_ms);
@@ -617,7 +624,7 @@
         body.ip_id = parseInt($('#nIp').value, 10) || 0;
         const res = await api('POST', '/api/chains', body);
         S.selected = res.id;
-        toast('已创建，正在检测。扫右侧二维码导入手机。');
+        toast('已创建，正在检测。在详情里扫码导入手机。');
       }
       closeSheet();
       await refresh();
@@ -697,10 +704,8 @@
   }
 
   async function busyButton(btn, fn) {
-    btn.disabled = true;
-    const old = btn.textContent;
-    btn.textContent = '处理中…';
-    try { await fn(); } catch (err) { toast(err.message); } finally { btn.disabled = false; btn.textContent = old; }
+    btn.disabled = true; btn.setAttribute('aria-busy', 'true');
+    try { await fn(); } catch (err) { toast(err.message); } finally { btn.disabled = false; btn.removeAttribute('aria-busy'); }
   }
 
   // ---------------- 事件 ----------------
@@ -742,7 +747,7 @@
       case 'delete-chain':
         if (!confirm('删除这条链路？住宅IP会变回空闲，手机上的节点会失效。')) break;
         busyButton(t, async () => { await api('DELETE', '/api/chains/' + id); toast('已删除'); await refresh(); }); break;
-      case 'pass': S.showPass = !S.showPass; renderDetail(); break;
+      case 'pass': S.showPass = t.dataset.v === '1'; renderDetail(); break;
       case 'copy-config': {
         const cfg = S.configCache[id];
         if (cfg) copy(cfg.clash);

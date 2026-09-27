@@ -15,10 +15,9 @@
 <!-- 登录 -->
 <div class="login" id="login" hidden>
   <form class="panel" id="loginForm">
-    <h1><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>落地链路台</h1>
-    <div class="field"><label for="loginPass">面板密码</label><input id="loginPass" type="password" autocomplete="current-password" required></div>
+    <div class="login-brand"><h1><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>落地链路台</h1><small>Residential exit chains</small></div>
+    <div class="field"><label for="loginPass">面板密码</label><input id="loginPass" type="password" autocomplete="current-password" aria-describedby="loginErr" required><p class="err" id="loginErr" role="alert"></p></div>
     <button class="btn primary" type="submit">登录</button>
-    <p class="err" id="loginErr" role="alert"></p>
   </form>
 </div>
 
@@ -58,7 +57,7 @@
       <div class="view-head">
         <div>
           <h1 id="h-chains">链路</h1>
-          <p>一台 iPhone 对应一条链路，绑定一个固定的静态住宅IP。建好后扫右侧二维码导入手机。</p>
+          <p>一台 iPhone 对应一条链路，绑定一个固定的静态住宅IP。建好后在详情里扫码导入手机。</p>
         </div>
         <div class="actions">
           <button class="btn" type="button" data-act="check-all">全部检测</button>
@@ -81,9 +80,9 @@
       </div>
       <div class="panel ingest">
         <div>
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <div class="card-head">
             <h2>智能粘贴</h2>
-            <div style="display:flex;align-items:center;gap:8px">
+            <div>
               <span class="hint">未注明协议时按</span>
               <div class="seg" role="group" aria-label="默认协议">
                 <button type="button" data-proto="socks5" aria-pressed="true">SOCKS5</button>
@@ -95,7 +94,7 @@
           <p class="hint">支持 <span class="mono">ip:端口:账号:密码</span>、<span class="mono">账号:密码@ip:端口</span>、<span class="mono">socks5://</span> 链接、小火箭 Base64 分享链接、空格或竖线分隔，以及「IP地址：… 端口：…」这类带标签的文本。</p>
         </div>
         <div>
-          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+          <div class="card-head">
             <h2>识别结果</h2>
             <span class="hint" id="parseCount"></span>
           </div>
@@ -123,9 +122,10 @@
         </div>
       </div>
       <div class="panel">
+        <div class="panel-head"><h2>IP 库</h2></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>地址</th><th>出口IP</th><th>地区 · 运营商</th><th>类型</th><th>到期</th><th>绑定设备</th><th>近 30 天流量</th><th></th></tr></thead>
+            <thead><tr><th>地址</th><th>出口IP</th><th>地区 · 运营商</th><th>类型</th><th>到期</th><th>绑定设备</th><th class="num">近 30 天流量</th><th></th></tr></thead>
             <tbody id="ipRows"></tbody>
           </table>
         </div>
@@ -138,15 +138,14 @@
           <h1 id="h-air">机场订阅</h1>
           <p>机场节点做 Stash 链路的前置。每 30 分钟自动同步一次流量、到期和节点。</p>
         </div>
-        <div class="actions"><button class="btn" type="button" data-act="test-nodes">节点测速</button></div>
       </div>
       <div class="air-grid" id="airGrid"></div>
       <div class="panel probe" id="probePanel" hidden></div>
-      <p class="hint node-note">「VPS 测速」是在你的 VPS（海外）上测的，入口在国内的专线节点从海外常常连不上，显示「VPS 连不上」不代表手机上不能用。手机上的 Stash 每 10 秒会自己测速、选最快的节点。</p>
-      <div class="chips" id="regionChips" role="group" aria-label="按地区筛选"></div>
+      <p class="hint node-note">「VPS 测速」是在你的 VPS（美国）上测的，只作参考：入口在国内的专线节点从海外常常测不通，延迟也会比国内高很多，都不代表手机上不能用。手机上的 Stash 每 10 秒会自己测速、选最快的节点。</p>
       <div class="panel">
+        <div class="panel-head"><h2>节点</h2><div class="chips" id="regionChips" role="group" aria-label="按地区筛选"></div><button class="btn small" type="button" data-act="test-nodes">节点测速</button></div>
         <div class="table-wrap">
-          <table>
+          <table id="nodeTable">
             <thead><tr><th>节点</th><th>机场</th><th>协议</th><th>VPS 测速</th><th>作为前置</th></tr></thead>
             <tbody id="nodeRows"></tbody>
           </table>
@@ -179,7 +178,7 @@
           <span class="hint">已绑定到其他设备的 IP 不能再选。</span>
         </div>
       </div>
-      <fieldset class="field choice">
+      <fieldset class="choice">
         <legend>机场前置节点 <span class="hint">Stash 链路用；小火箭扫码走 VPS 中转，不经过机场</span></legend>
         <div class="opt-list">
           <label class="opt"><input type="radio" name="front" value="fastest" checked><span class="opt-body"><b>自动选最快 <span class="badge">推荐</span></b><span class="d">手机每 10 秒测一次，自动用同国家里最快的机场节点。换节点不影响落地IP。</span></span></label>
@@ -187,8 +186,8 @@
           <label class="opt"><input type="radio" name="front" value="fixed"><span class="opt-body"><b>固定节点</b><span class="d">始终使用下面选的节点，断了不会自动换。</span><select id="nNode" aria-label="固定使用的节点"></select></span></label>
         </div>
       </fieldset>
-      <p class="sheet-note">出口固定为全局：这台手机的全部流量都从住宅IP出去，断线不回落，不会漏出机场IP或手机自己的IP。</p>
-      <p class="hint" id="sheetErr" role="alert" style="color:var(--bad)"></p>
+      <p class="sheet-note"><b>出口固定为全局</b>这台手机的全部流量都从住宅IP出去，断线不回落，不会漏出机场IP或手机自己的IP。</p>
+      <p class="form-err" id="sheetErr" role="alert"></p>
       <div class="sheet-foot">
         <button class="btn" type="button" data-act="close-sheet">取消</button>
         <button class="btn primary" type="submit" id="sheetSubmit">创建并检测</button>

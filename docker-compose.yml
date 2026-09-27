@@ -7,8 +7,8 @@ services:
     volumes:
       - ./data:/data
     ports:
-      # 面板只给本机访问，外网通过 Cloudflare Tunnel 进来
-      - "127.0.0.1:8080:8080"
+      # 面板只给本机调试用（Cloudflare Tunnel 走 Docker 内部网络，不经过这个端口）
+      - "127.0.0.1:${PANEL_LOCAL_PORT:-18080}:8080"
       # 中转：手机直接连这个端口（Cloudflare Tunnel 转发不了它）
       - "${RELAY_PORT:-443}:8443"
 

@@ -29,6 +29,9 @@ type App struct {
 	CheckEvery time.Duration
 
 	busy sync.Mutex // 手动检测和定时检测不同时跑
+
+	multiMu   sync.Mutex
+	multiLast map[int64]time.Time // 每台设备上次一码多机告警的时间
 }
 
 // ---------------- 订阅 ----------------

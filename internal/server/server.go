@@ -59,6 +59,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /sub/{token}", s.subscription)
 	mux.HandleFunc("GET /d/{token}", s.share)
+	mux.HandleFunc("POST /d/{token}/check", s.selfCheck)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
 
@@ -582,14 +583,18 @@ func (b *chainBody) validate() string {
 	if b.Device == "" {
 		return "设备名不能为空"
 	}
-	if b.FrontMode != "fixed" {
-		b.FrontMode, b.FrontNodeID = "auto", 0
-	} else if b.FrontNodeID == 0 {
-		return "固定前置需要选一个节点"
+	switch b.FrontMode {
+	case "fixed":
+		if b.FrontNodeID == 0 {
+			return "固定前置需要选一个节点"
+		}
+	case "auto":
+		b.FrontNodeID = 0
+	default:
+		b.FrontMode, b.FrontNodeID = "fastest", 0
 	}
-	if b.Route != "split" {
-		b.Route = "global"
-	}
+	// 只有全局模式：住宅IP不限流量，所有流量都从住宅IP出去最安全
+	b.Route = "global"
 	var acc []store.Account
 	for _, a := range b.Accounts {
 		if strings.TrimSpace(a.Handle) != "" {

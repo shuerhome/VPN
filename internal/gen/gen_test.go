@@ -18,7 +18,7 @@ func sample() (store.Chain, store.IP, []store.Node) {
 		{ID: 3, Name: "日本 01", Country: "JP", DelayMS: 60, Raw: map[string]any{"name": "日本 01", "type": "trojan", "server": "c.example.com", "port": 443, "password": "x"}},
 		{ID: 4, Name: "美国 03", Country: "US", DelayMS: 0, Raw: map[string]any{"name": "美国 03", "type": "trojan", "server": "d.example.com", "port": 443, "password": "x"}},
 	}
-	return store.Chain{ID: 1, Device: "iPhone 01", IPID: 1, FrontMode: "auto", Route: "global"}, ip, nodes
+	return store.Chain{ID: 1, Device: "iPhone 01", IPID: 1, FrontMode: "fastest", Route: "global"}, ip, nodes
 }
 
 func TestFrontNodes(t *testing.T) {
@@ -33,27 +33,31 @@ func TestFrontNodes(t *testing.T) {
 	}
 }
 
-// 生成的订阅要能被 mihomo 解析（Stash 与它格式兼容）
+// 生成的订阅要能被 mihomo 解析（Stash 与它格式兼容），三种前置模式都要验证
 func TestClientConfigValid(t *testing.T) {
 	c, ip, nodes := sample()
-	for _, route := range []string{"global", "split"} {
-		c.Route = route
+	want := map[string]string{"fastest": "type: url-test", "auto": "type: fallback", "fixed": "dialer-proxy: 前置·日本 01"}
+	for _, mode := range []string{"fastest", "auto", "fixed"} {
+		c.FrontMode, c.FrontNodeID = mode, 3
 		cfg, err := ClientConfig(c, ip, nodes)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(cfg, "dialer-proxy: 前置-US") || !strings.Contains(cfg, "MATCH,") {
-			t.Fatalf("配置内容不对:\n%s", cfg)
+		if !strings.Contains(cfg, want[mode]) || !strings.Contains(cfg, "- MATCH,社媒出口") || strings.Contains(cfg, "DIRECT") {
+			t.Fatalf("%s 模式配置不对:\n%s", mode, cfg)
+		}
+		if mode == "fastest" && (!strings.Contains(cfg, "interval: 10") || !strings.Contains(cfg, "tolerance: 50")) {
+			t.Fatalf("最快模式应每 10 秒测速:\n%s", cfg)
 		}
 		bin := os.Getenv("MIHOMO_BIN")
-		if bin == "" || route == "split" { // split 规则里的 GEOIP 需要下载数据库，离线环境跳过
+		if bin == "" {
 			continue
 		}
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
 		_ = os.WriteFile(path, []byte(cfg), 0o600)
 		if out, err := exec.Command(bin, "-t", "-d", dir, "-f", path).CombinedOutput(); err != nil {
-			t.Fatalf("mihomo 校验失败: %v\n%s\n%s", err, out, cfg)
+			t.Fatalf("mihomo 校验失败（%s）: %v\n%s\n%s", mode, err, out, cfg)
 		}
 	}
 }

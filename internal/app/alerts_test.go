@@ -125,3 +125,16 @@ func TestStatusText(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+func TestSelfCheckAlert(t *testing.T) {
+	a, box := setup(t)
+	a.SelfCheckAlert(3, "iPhone 03", "203.0.113.24", "203.0.113.24", true, "")
+	a.SelfCheckAlert(3, "iPhone 03", "117.136.0.8", "203.0.113.24", false, "")
+	a.SelfCheckAlert(3, "iPhone 03", "117.136.0.8", "203.0.113.24", false, "")
+	a.SelfCheckAlert(3, "iPhone 03", "203.0.113.24", "203.0.113.24", true, "")
+	msgs := settle(box, 0)
+	all := strings.Join(msgs, "\n")
+	if len(msgs) != 2 || !strings.Contains(all, "不是住宅IP") || !strings.Contains(all, "自检通过") {
+		t.Fatalf("应先告警一次，恢复时再通知一次: %v", msgs)
+	}
+}

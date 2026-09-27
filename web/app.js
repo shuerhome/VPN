@@ -58,6 +58,11 @@
     if (b >= 1048576) return (b / 1048576).toFixed(1) + ' MB';
     return Math.round(b / 1024) + ' KB';
   }
+  function frontLabel(c, e) {
+    if (c.front_mode === 'fixed') return '固定';
+    const up = e.fronts.filter(n => n.delay_ms > 0).length + '/' + e.fronts.length;
+    return (c.front_mode === 'auto' ? '故障切换 ' : '最快 ') + up;
+  }
   function onlineBadge(c) {
     const o = c.online || {};
     if (o.online && (o.ips || []).length > 1) return '<span class="online multi">' + o.ips.length + ' 个IP同时在用</span>';
@@ -94,6 +99,16 @@
     return { s: 'ok', t: '出口 ' + c.check_exit, d: (c.check_front ? '经 ' + c.check_front + ' · ' : '') + c.check_ms + 'ms · ' + ago(c.check_at) };
   }
 
+  function selfPath(c) {
+    if (!c.selfcheck_at) return { s: 'pending', t: '还没做过', d: '让操作这台手机的同事打开「导入页」，开着代理点「开始自检」' };
+    let items = [];
+    try { items = JSON.parse(c.selfcheck || '[]'); } catch (e) { /* 旧数据 */ }
+    const bad = items.filter(i => i.ok === false);
+    if (bad.length) return { s: 'bad', t: bad.map(i => i.title).join('、'), d: (bad[0].detail || '') + ' · ' + ago(c.selfcheck_at) };
+    const exit = items.find(i => i.key === 'ip');
+    return { s: 'ok', t: '通过' + (exit ? ' · 出口 ' + exit.detail : ''), d: '出口IP、时区、语言、WebRTC 都正常 · ' + ago(c.selfcheck_at) };
+  }
+
   function evaluate(c) {
     const ip = ipById(c.ip_id);
     const fronts = (c.fronts || []).map(nodeById).filter(Boolean);
@@ -101,6 +116,8 @@
     const air = airPath(c, ip);
     const issues = [];
     [relay, air].forEach((p, i) => { if (p.s === 'bad') issues.push({ s: 'bad', t: (i ? 'Stash 链路：' : '中转：') + p.t }); });
+    const self = selfPath(c);
+    if (self.s === 'bad') issues.unshift({ s: 'bad', t: '手机自检：' + self.t });
     if (ip.hosting) issues.push({ s: 'warn', t: '落地IP 是机房IP，不建议用于社媒' });
     const d = daysUntil(ip.expire);
     if (d != null && d <= 7) issues.push({ s: 'warn', t: d < 0 ? '住宅IP 已过期' : '住宅IP ' + d + ' 天后到期' });
@@ -111,7 +128,8 @@
     if (issues.some(i => i.s === 'warn') && status === 'ok') status = 'warn';
     if (main.s === 'bad') status = 'bad';
     else if (relay.s === 'bad' || air.s === 'bad') status = status === 'pending' ? 'pending' : 'warn';
-    return { ip, fronts, relay, air, issues, status };
+    if (self.s === 'bad') status = 'bad';
+    return { ip, fronts, relay, air, self, issues, status };
   }
 
   const STATUS_TEXT = { ok: '正常', warn: '需注意', bad: '故障', pending: '待检测' };
@@ -158,7 +176,7 @@
       const foot = top ? '<div class="row-foot ' + top.s + '">' + esc(top.t) + '</div>'
         : '<div class="row-foot">' + esc(e.status === 'pending' ? '检测中…' : (S.data.relay.enabled ? e.relay : e.air).t + ' · 与绑定一致') + '</div>';
       const f = e.fronts[0];
-      const front = '<div class="hop front' + (f ? '' : ' down') + '"><span class="k">前置 · ' + (c.front_mode === 'fixed' ? '固定' : '自动 ' + e.fronts.filter(n => n.delay_ms > 0).length + '/' + e.fronts.length) + '</span><span class="v">' + esc(f ? f.name : '无可用节点') + '</span></div>';
+      const front = '<div class="hop front' + (f ? '' : ' down') + '"><span class="k">前置 · ' + frontLabel(c, e) + '</span><span class="v">' + esc(f ? f.name : '无可用节点') + '</span></div>';
       const land = '<div class="hop land"><span class="k">落地 · ' + esc(ipKind(e.ip) || '住宅IP') + '</span><span class="v"><span class="ip">' + esc(e.ip.host) + '</span> ' + esc(e.ip.city || '') + '</span></div>';
       const ms = c.check_ms ? c.check_ms + 'ms' : '';
       return '<li class="chain-row" role="option" tabindex="0" data-id="' + c.id + '" aria-selected="' + (c.id === S.selected) + '">' +
@@ -203,7 +221,7 @@
       '</section>' +
       usageSection(c) +
       '<section aria-label="出口检测"><span class="eyebrow">出口检测 · 平台看到的IP应当始终是 <span class="ip">' + esc(expected(ip)) + '</span></span><div class="paths">' +
-        (S.data.relay.enabled ? pathRow('中转', e.relay) : '') + pathRow('Stash', e.air) +
+        pathRow('手机自检', e.self) + (S.data.relay.enabled ? pathRow('中转', e.relay) : '') + pathRow('Stash', e.air) +
       '</div>' +
       ((e.relay.t === '出口IP变了' || e.air.t === '出口IP不一致') ? '<div class="code-tools"><span class="hint warn">确认是供应商换了线路、新IP可以用，再点右边。</span><button class="btn small" type="button" data-act="baseline" data-id="' + ip.id + '">以当前出口为准</button></div>' : '') +
       '</section>' +
@@ -298,8 +316,8 @@
       pane.innerHTML = '<div class="export-grid"><div style="display:grid;gap:10px;min-width:0">' + copyRow(c.relay_link) +
         '<div class="export-note">用小火箭扫右侧二维码（首页右上角的扫码图标），导入后选中这个节点、打开开关即可。Loon、Stash、Quantumult X 也能扫。' +
         '<ol><li>手机 → 你的 VPS（' + esc(S.data.relay.host) + '）→ 住宅IP <b class="ip">' + esc(e.ip.host) + '</b> → 平台。</li>' +
-        '<li>小火箭「全局路由」选「代理」，这台手机所有流量都走住宅IP。</li>' +
-        '<li>这一路不经过机场。二维码只给这台手机用，不要转发。</li></ol></div></div>' +
+        '<li>小火箭「全局路由」选「代理」；「设置」里打开「按需连接」，确认「UDP 转发」已开启。</li>' +
+        '<li>在这台手机上用 Safari 打开导入页，点「开始自检」，结果会显示在左边的「手机自检」。</li></ol></div></div>' +
         '<div class="qr" aria-label="中转节点二维码">' + qrSvg(c.relay_link) + '</div></div>';
       return;
     }
@@ -502,10 +520,9 @@
     if (free) $('#nIp').value = String(free.id);
     const alive = S.data.nodes.filter(n => n.delay_ms >= 0).sort((a, b) => (a.country || '').localeCompare(b.country || '') || a.delay_ms - b.delay_ms);
     $('#nNode').innerHTML = alive.map(n => '<option value="' + n.id + '">' + esc((n.country ? n.country + ' · ' : '') + n.name + (n.delay_ms > 0 ? ' · ' + n.delay_ms + 'ms' : '')) + '</option>').join('') || '<option value="">没有可用节点</option>';
-    const mode = chain ? chain.front_mode : 'auto';
+    const mode = chain ? (chain.front_mode || 'fastest') : 'fastest';
     $('input[name="front"][value="' + mode + '"]').checked = true;
     if (chain && chain.front_node_id) $('#nNode').value = String(chain.front_node_id);
-    $('input[name="route"][value="' + (chain ? chain.route : 'global') + '"]').checked = true;
     $('#sheetBg').hidden = false;
     $('#nDevice').focus();
   }
@@ -519,7 +536,6 @@
       accounts: $('#nHandle').value.split(/[\s,，]+/).filter(Boolean).map(h => ({ p: platform, h })),
       front_mode: $('input[name="front"]:checked').value,
       front_node_id: parseInt($('#nNode').value, 10) || 0,
-      route: $('input[name="route"]:checked').value,
     };
     const btn = $('#sheetSubmit');
     btn.disabled = true;

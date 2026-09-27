@@ -177,20 +177,15 @@
           <span class="hint">已绑定到其他设备的 IP 不能再选。</span>
         </div>
       </div>
-      <div class="field">
-        <label>前置节点（Stash 链路用）</label>
+      <fieldset class="field choice">
+        <legend>机场前置节点 <span class="hint">Stash 链路用；小火箭扫码走 VPS 中转，不经过机场</span></legend>
         <div class="opt-list">
-          <label class="opt"><input type="radio" name="front" value="auto" checked><span><b>自动</b><span class="d" style="display:block">取与住宅IP同国家的机场节点组成前置组，挂了自动切下一个。</span></span></label>
-          <label class="opt"><input type="radio" name="front" value="fixed"><span><b>固定节点</b><select id="nNode" style="display:block;margin-top:4px;max-width:100%"></select></span></label>
+          <label class="opt"><input type="radio" name="front" value="fastest" checked><span class="opt-body"><b>自动选最快 <span class="badge">推荐</span></b><span class="d">手机每 10 秒测一次，自动用同国家里最快的机场节点。换节点不影响落地IP。</span></span></label>
+          <label class="opt"><input type="radio" name="front" value="auto"><span class="opt-body"><b>故障切换</b><span class="d">一直用同一个节点，它断了才换下一个。</span></span></label>
+          <label class="opt"><input type="radio" name="front" value="fixed"><span class="opt-body"><b>固定节点</b><span class="d">始终使用下面选的节点，断了不会自动换。</span><select id="nNode" aria-label="固定使用的节点"></select></span></label>
         </div>
-      </div>
-      <div class="field">
-        <label>出口模式（Stash 链路用）</label>
-        <div class="opt-list">
-          <label class="opt"><input type="radio" name="route" value="global" checked><span><b>全局</b><span class="d" style="display:block">手机所有流量都从住宅IP出去。最稳，推荐。</span></span></label>
-          <label class="opt"><input type="radio" name="route" value="split"><span><b>分流</b><span class="d" style="display:block">只有社媒域名走住宅IP，其他走机场。省住宅流量，但平台新增的域名可能漏掉。</span></span></label>
-        </div>
-      </div>
+      </fieldset>
+      <p class="sheet-note">出口固定为全局：这台手机的全部流量都从住宅IP出去，断线不回落，不会漏出机场IP或手机自己的IP。</p>
       <p class="hint" id="sheetErr" role="alert" style="color:var(--bad)"></p>
       <div class="sheet-foot">
         <button class="btn" type="button" data-act="close-sheet">取消</button>

@@ -153,3 +153,51 @@ func TestClientKind(t *testing.T) {
 		}
 	}
 }
+
+func TestSelfCheck(t *testing.T) {
+	srv, st, token := newServer(t)
+	post := func(cfIP, body string) map[string]any {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/d/"+token+"/check", strings.NewReader(body))
+		req.Header.Set("CF-Connecting-IP", cfIP)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return out
+	}
+	// 一切正确
+	got := post("203.0.113.24", `{"tz":"America/Los_Angeles","lang":"en-US","webrtc":["203.0.113.24"]}`)
+	if got["ok"] != true {
+		t.Fatalf("应全部通过: %v", got)
+	}
+	c, _ := st.ChainByToken(token)
+	if !c.SelfCheckOK || c.SelfCheckAt == 0 || !strings.Contains(c.SelfCheck, "出口IP 是住宅IP") {
+		t.Fatalf("自检结果没记下来: %+v", c)
+	}
+	// 没开代理：出口是国内IP；时区是上海；语言中文；WebRTC 暴露真实IP
+	got = post("117.136.0.8", `{"tz":"Asia/Shanghai","lang":"zh-CN","webrtc":["117.136.0.8"]}`)
+	if got["ok"] != false {
+		t.Fatalf("应不通过: %v", got)
+	}
+	bad := 0
+	for _, it := range got["items"].([]any) {
+		if m := it.(map[string]any); m["ok"] == false {
+			bad++
+		}
+	}
+	if bad != 4 {
+		t.Fatalf("出口、时区、语言、WebRTC 四项都应不通过，实际 %d: %v", bad, got)
+	}
+	c, _ = st.ChainByToken(token)
+	if c.SelfCheckOK {
+		t.Fatal("应记为不通过")
+	}
+	// 错误 token
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/d/AAAAAAAAAAAAAAAAAAAAAAAA/check", strings.NewReader(`{}`))
+	if resp, _ := http.DefaultClient.Do(req); resp.StatusCode != 404 {
+		t.Fatalf("错误 token 应 404: %d", resp.StatusCode)
+	}
+}

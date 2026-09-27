@@ -72,8 +72,8 @@ var shareTmpl = template.Must(template.New("share").Parse(`<!doctype html>
 <meta name="robots" content="noindex, nofollow">
 <title>{{.Device}} · 导入</title>
 <style>
-:root{--bg:#EDF0F3;--card:#fff;--ink:#141A21;--muted:#667180;--line:#D9DEE4;--accent:#3446D4;--land:#C9560F}
-@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0D1116;--card:#141920;--ink:#E3E8EE;--muted:#8B96A5;--line:#252D38;--accent:#8D99FF;--land:#F08C4E}}
+:root{--bg:#EDF0F3;--card:#fff;--ink:#141A21;--muted:#667180;--line:#D9DEE4;--accent:#3446D4;--land:#C9560F;--ok:#1B8452;--ok-soft:#E0F2E9;--bad:#C2332B;--bad-soft:#FBE3E1}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0D1116;--card:#141920;--ink:#E3E8EE;--muted:#8B96A5;--line:#252D38;--accent:#8D99FF;--land:#F08C4E;--ok:#45C388;--ok-soft:#12301F;--bad:#F2766C;--bad-soft:#3A1614}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "PingFang SC","Hiragino Sans GB","Noto Sans SC",system-ui,sans-serif;padding:20px 16px calc(32px + env(safe-area-inset-bottom))}
 main{max-width:520px;margin:0 auto;display:grid;gap:14px}
 h1{font-size:22px;margin:0}.muted{color:var(--muted);font-size:13px}
@@ -84,6 +84,11 @@ h2{font-size:16px;margin:0}.qr{width:220px;max-width:100%;aspect-ratio:1;border-
 code{font:12px/1.5 ui-monospace,Menlo,monospace;word-break:break-all;background:var(--bg);padding:8px;border-radius:6px;display:block;user-select:all;-webkit-user-select:all}
 ol{margin:0;padding-left:20px;display:grid;gap:4px}dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px 14px}dt{color:var(--muted)}dd{margin:0;font-weight:600}
 .ip{font-family:ui-monospace,Menlo,monospace;color:var(--land)}
+button.btn{border:0;font:inherit;font-weight:600;cursor:pointer;width:100%}button.btn:disabled{opacity:.6}
+.verdict{font-weight:700;padding:10px 12px;border-radius:8px}.verdict.ok{background:var(--ok-soft);color:var(--ok)}.verdict.bad{background:var(--bad-soft);color:var(--bad)}
+.checks{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:8px}.checks li{display:grid;grid-template-columns:22px 1fr;gap:8px;align-items:start}
+.checks .ic{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;background:var(--muted);margin-top:2px}
+.checks .ok .ic{background:var(--ok)}.checks .bad .ic{background:var(--bad)}.checks b{display:block}.checks span{font-size:13px;color:var(--muted)}
 </style></head><body><main>
 <div><h1>{{.Device}}</h1><div class="muted">{{range $i, $a := .Accounts}}{{if $i}} · {{end}}{{$a.Platform}} {{$a.Handle}}{{end}}</div></div>
 {{if .Relay}}
@@ -91,11 +96,18 @@ ol{margin:0;padding-left:20px;display:grid;gap:4px}dl{margin:0;display:grid;grid
 <img class="qr" src="{{.RelayQR}}" alt="节点二维码">
 <ol><li>用另一台设备打开本页，iPhone 小火箭点右上角扫码图标扫上面的码。</li>
 <li>如果就在这台 iPhone 上打开本页，点下面的按钮，或长按复制链接后在小火箭里从剪贴板导入。</li>
-<li>选中新节点，「全局路由」选「代理」，打开开关。</li></ol>
+<li>选中新节点，「全局路由」选「代理」，打开开关。</li>
+<li>小火箭「设置」里打开「按需连接」，并确认「UDP 转发」已开启：VPN 意外断开会自动重连，手机不会用自己的IP上网。</li>
+<li>导入后，在这台 iPhone 上用 Safari 打开本页，做一次下面的「安全自检」。</li></ol>
 <a class="btn" href="{{.RelayOpen}}">在小火箭中打开</a>
 <code>{{.RelayLink}}</code>
 </section>
 {{end}}
+<section class="card" id="check"><h2>安全自检</h2>
+<p class="muted" style="margin:0">打开代理后，在这台 iPhone 上点下面的按钮。会检查：出口IP是不是住宅IP、时区和语言对不对、WebRTC 有没有暴露真实IP。结果会同步给管理员。</p>
+<button class="btn" type="button" id="selfcheck">开始自检</button>
+<div id="selfcheck-result"></div>
+</section>
 <section class="card"><h2>{{if .Relay}}或者用 Stash{{else}}Stash 导入{{end}}</h2>
 <img class="qr" src="{{.SubQR}}" alt="订阅二维码">
 <a class="btn alt" href="{{.StashURL}}">在 Stash 中导入</a>
@@ -110,7 +122,7 @@ ol{margin:0;padding-left:20px;display:grid;gap:4px}dl{margin:0;display:grid;grid
 <p class="muted" style="margin:0">设置 → 通用 → 日期与时间（关闭自动设置后选城市）；设置 → 通用 → 语言与地区。</p>
 </section>
 <p class="muted">这个页面只给这台手机用，不要转发。链接泄露时请联系管理员重置。</p>
-</main></body></html>`))
+</main><script src="/share.js"></script></body></html>`))
 
 // sharePage 渲染设备导入页（凭订阅 token 访问，无需登录）。
 func (s *Server) share(w http.ResponseWriter, r *http.Request) {

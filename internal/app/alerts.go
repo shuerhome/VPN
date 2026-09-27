@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -152,21 +151,35 @@ func (a *App) EvaluateAlerts() {
 
 func gb(b int64) float64 { return float64(b) / (1 << 30) }
 
-var multiMu sync.Mutex
-var multiLast = map[int64]time.Time{}
-
 // MultiDeviceAlert 同一个二维码被两个以上的IP同时使用。6 小时内同一台设备只报一次。
 func (a *App) MultiDeviceAlert(chainID int64, device string, ips []string) {
-	multiMu.Lock()
-	if time.Since(multiLast[chainID]) < 6*time.Hour {
-		multiMu.Unlock()
+	a.multiMu.Lock()
+	if a.multiLast == nil {
+		a.multiLast = map[int64]time.Time{}
+	}
+	if time.Since(a.multiLast[chainID]) < 6*time.Hour {
+		a.multiMu.Unlock()
 		return
 	}
-	multiLast[chainID] = time.Now()
-	multiMu.Unlock()
+	a.multiLast[chainID] = time.Now()
+	a.multiMu.Unlock()
 	log.Printf("%s 的二维码同时有多个来源IP: %v", device, ips)
 	a.notify(fmt.Sprintf("🚨 %s 的二维码正被 %d 个IP同时使用：\n%s\n可能被转发给了别人或装在了多台设备上。如果不是你安排的，在面板里点「重置二维码」。",
 		device, len(ips), strings.Join(ips, "\n")))
+}
+
+// SelfCheckAlert 处理手机上的安全自检结果：出口不是住宅IP、WebRTC 泄露时告警，恢复时再通知一次。
+func (a *App) SelfCheckAlert(chainID int64, device, exit, want string, exitOK bool, leak string) {
+	state, bad := "ok", ""
+	switch {
+	case !exitOK:
+		state = "exit:" + exit
+		bad = fmt.Sprintf("🚨 %s 手机自检：出口IP是 %s，不是住宅IP %s\n手机可能没开代理、没用全局模式，或开了 iCloud 专用代理。先别让这台手机登录账号。", device, exit, want)
+	case leak != "":
+		state = "webrtc"
+		bad = fmt.Sprintf("⚠️ %s 手机自检：WebRTC 暴露了其他IP：%s", device, leak)
+	}
+	a.transition(fmt.Sprintf("selfcheck:%d", chainID), state, bad, fmt.Sprintf("✅ %s 手机自检通过，出口 %s", device, exit))
 }
 
 // ---------------- 备份 ----------------

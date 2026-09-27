@@ -3,5 +3,5 @@ package web
 
 import "embed"
 
-//go:embed index.html style.css app.js parse-proxy.js qrcode.js
+//go:embed index.html style.css app.js share.js parse-proxy.js qrcode.js
 var Files embed.FS

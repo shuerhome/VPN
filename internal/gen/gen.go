@@ -17,13 +17,11 @@ import (
 // MaxAutoFronts 自动模式下前置组最多放几个节点。
 const MaxAutoFronts = 5
 
-// SocialDomains 分流模式下走住宅IP的域名。
-var SocialDomains = []string{
-	"tiktok.com", "tiktokv.com", "tiktokcdn.com", "tiktokcdn-us.com", "tiktokv.us", "byteoversea.com", "ibytedtos.com", "ibyteimg.com", "ttwstatic.com", "musical.ly",
-	"instagram.com", "cdninstagram.com", "facebook.com", "fbcdn.net", "fb.com", "messenger.com", "whatsapp.net", "threads.net",
-	"youtube.com", "googlevideo.com", "ytimg.com", "x.com", "twitter.com", "twimg.com", "t.co",
-	"ipinfo.io", "ip-api.com", "ipify.org", "ifconfig.me", "whoer.net", "browserleaks.com",
-}
+// FastestInterval 是「最快」模式下手机端测速的间隔（秒）。
+const FastestInterval = 10
+
+// FastestTolerance：新节点要比当前节点快这么多毫秒才切换，避免在差不多快的节点之间来回跳。
+const FastestTolerance = 50
 
 // FrontNodes 选出这条链路的前置节点。
 // 固定模式：就是那一个节点。自动模式：与落地IP同国家、没超时的节点，按延迟排序取前几个；
@@ -178,26 +176,31 @@ func ClientConfig(c store.Chain, ip store.IP, nodes []store.Node) (string, error
 
 	dialer := frontNames[0]
 	var groups []any
-	if c.FrontMode != "fixed" {
+	switch c.FrontMode {
+	case "fixed":
+	case "auto":
+		// 故障切换：一直用第一个，它挂了才换下一个
 		dialer = "前置-" + orDefault(ip.CountryCode, "自动")
 		groups = append(groups, OM{
 			{"name", dialer}, {"type", "fallback"},
-			{"url", "https://www.gstatic.com/generate_204"}, {"interval", 300},
+			{"url", "https://www.gstatic.com/generate_204"}, {"interval", 60},
+			{"proxies", frontNames},
+		})
+	default: // fastest
+		// 最快：手机每 10 秒测一次延迟，自动用最快的前置。换前置不影响落地IP。
+		dialer = "前置-" + orDefault(ip.CountryCode, "自动")
+		groups = append(groups, OM{
+			{"name", dialer}, {"type", "url-test"},
+			{"url", "https://www.gstatic.com/generate_204"}, {"interval", FastestInterval},
+			{"tolerance", FastestTolerance}, {"lazy", false},
 			{"proxies", frontNames},
 		})
 	}
 	proxies = append(proxies, LandProxy(ip, land, dialer))
 	groups = append(groups, OM{{"name", "社媒出口"}, {"type", "select"}, {"proxies", []string{land}}})
 
-	var rules []string
-	if c.Route == "split" {
-		for _, d := range SocialDomains {
-			rules = append(rules, "DOMAIN-SUFFIX,"+d+",社媒出口")
-		}
-		rules = append(rules, "GEOIP,CN,DIRECT", "MATCH,"+dialer)
-	} else {
-		rules = append(rules, "MATCH,社媒出口")
-	}
+	// 全局：手机的所有流量都从住宅IP出去，没有任何直连或走机场出口的规则
+	rules := []string{"MATCH,社媒出口"}
 
 	doc := OM{
 		{"mixed-port", 7890},

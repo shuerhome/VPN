@@ -84,9 +84,9 @@ type Chain struct {
 	Device      string    `json:"device"`
 	Accounts    []Account `json:"accounts"`
 	IPID        int64     `json:"ip_id"`
-	FrontMode   string    `json:"front_mode"` // auto | fixed
+	FrontMode   string    `json:"front_mode"` // fastest（最快）| auto（故障切换）| fixed（固定）
 	FrontNodeID int64     `json:"front_node_id"`
-	Route       string    `json:"route"` // global | split
+	Route       string    `json:"route"` // 只有 global：手机全部流量走住宅IP
 	Token       string    `json:"token"`
 	CreatedAt   int64     `json:"created_at"`
 	CheckAt     int64     `json:"check_at"`
@@ -95,8 +95,11 @@ type Chain struct {
 	CheckError  string    `json:"check_error"`
 	CheckFront  string    `json:"check_front"`
 	RelayUUID   string    `json:"-"`
-	LastSeen    int64     `json:"last_seen"` // 最近一次通过中转上网的时间
-	LastSrc     string    `json:"last_src"`  // 最近一次连接中转的来源IP
+	LastSeen    int64     `json:"last_seen"`    // 最近一次通过中转上网的时间
+	LastSrc     string    `json:"last_src"`     // 最近一次连接中转的来源IP
+	SelfCheckAt int64     `json:"selfcheck_at"` // 手机上最近一次安全自检
+	SelfCheckOK bool      `json:"selfcheck_ok"`
+	SelfCheck   string    `json:"selfcheck"` // 自检各项结果（JSON）
 }
 
 type Store struct {
@@ -152,6 +155,11 @@ func Open(path string, box *crypt.Box) (*Store, error) {
 		`ALTER TABLE chains ADD COLUMN relay_uuid TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE chains ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE chains ADD COLUMN last_src TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE chains ADD COLUMN selfcheck_at INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE chains ADD COLUMN selfcheck_ok INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE chains ADD COLUMN selfcheck TEXT NOT NULL DEFAULT ''`,
+		// 分流模式已取消：住宅IP不限流量，全部走住宅IP最安全
+		`UPDATE chains SET route='global' WHERE route<>'global'`,
 	} {
 		if _, err := db.Exec(m); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return nil, fmt.Errorf("升级数据库: %w", err)
@@ -449,13 +457,15 @@ func (s *Store) ResetBaseline(id int64) error {
 
 // ---------------- chains ----------------
 
-const chainCols = `id,device,accounts,ip_id,front_mode,front_node_id,route,token,created_at,check_at,check_exit,check_ms,check_error,check_front,relay_uuid,last_seen,last_src`
+const chainCols = `id,device,accounts,ip_id,front_mode,front_node_id,route,token,created_at,check_at,check_exit,check_ms,check_error,check_front,relay_uuid,last_seen,last_src,selfcheck_at,selfcheck_ok,selfcheck`
 
 func scanChain(sc interface{ Scan(...any) error }) (Chain, error) {
 	var c Chain
 	var acc string
+	var selfOK int
 	err := sc.Scan(&c.ID, &c.Device, &acc, &c.IPID, &c.FrontMode, &c.FrontNodeID, &c.Route, &c.Token, &c.CreatedAt,
-		&c.CheckAt, &c.CheckExit, &c.CheckMS, &c.CheckError, &c.CheckFront, &c.RelayUUID, &c.LastSeen, &c.LastSrc)
+		&c.CheckAt, &c.CheckExit, &c.CheckMS, &c.CheckError, &c.CheckFront, &c.RelayUUID, &c.LastSeen, &c.LastSrc, &c.SelfCheckAt, &selfOK, &c.SelfCheck)
+	c.SelfCheckOK = selfOK == 1
 	if err == nil {
 		_ = json.Unmarshal([]byte(acc), &c.Accounts)
 	}
@@ -608,5 +618,11 @@ func (s *Store) TrafficSummary(today, since string) (map[int64]Traffic, error) {
 // Backup 把数据库完整复制到 path（加密字段保持加密）。
 func (s *Store) Backup(path string) error {
 	_, err := s.db.Exec(`VACUUM INTO ?`, path)
+	return err
+}
+
+// UpdateSelfCheck 记录手机上的安全自检结果。
+func (s *Store) UpdateSelfCheck(id int64, ok bool, result string) error {
+	_, err := s.db.Exec(`UPDATE chains SET selfcheck_at=?, selfcheck_ok=?, selfcheck=? WHERE id=?`, now(), b2i(ok), result, id)
 	return err
 }

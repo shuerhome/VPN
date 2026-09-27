@@ -372,3 +372,24 @@ td input[type="date"] { border: 1px solid var(--line); border-radius: 5px; paddi
   .export-grid { grid-template-columns: minmax(0, 1fr); }
   .qr { width: 180px; height: 180px; }
 }
+
+/* ---------- 在线状态、使用情况、设置 ---------- */
+.online { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.online::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); }
+.online.on { color: var(--ok); }
+.online.on::before { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.online.multi { color: var(--bad); }
+.online.multi::before { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft); }
+.usage { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.usage > div { display: grid; gap: 2px; min-width: 0; }
+.usage b { font-family: var(--font-mono); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.usage span { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.alert-box { border: 1px solid var(--bad); background: var(--bad-soft); color: var(--bad); border-radius: 6px; padding: 8px 10px; font-size: 13px; }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; align-items: start; }
+.settings-grid .panel { padding: 16px 18px; display: grid; gap: 12px; }
+.settings-grid h2 { font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.bind-code { font-family: var(--font-mono); font-size: 22px; font-weight: 600; letter-spacing: .12em; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .usage { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

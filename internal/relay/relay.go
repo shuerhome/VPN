@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -42,11 +43,14 @@ type Relay struct {
 	Dest       string // Reality 回落目标，默认 SNI:443
 	LogLevel   string // 默认 warning
 	Store      *store.Store
+	Meter      Meter // 每台手机的流量计量转发
 
 	reload   chan struct{}
 	initOnce sync.Once
 	mu       sync.Mutex
 	status   string
+	ctlPort  int    // 运行中的中转进程的控制端口
+	secret   string // 控制接口密钥
 }
 
 func (r *Relay) Enabled() bool { return r.PublicHost != "" && r.PublicPort > 0 }
@@ -153,6 +157,8 @@ func (r *Relay) buildConfig(ctlPort int, secret string) ([]byte, error) {
 	}
 	var users, proxies []any
 	var rules []string
+	keep := map[int64]bool{}
+	defer r.Meter.Retain(keep)
 	for _, c := range chains {
 		ip, err := r.Store.IP(c.IPID)
 		if err != nil || c.RelayUUID == "" {
@@ -160,8 +166,19 @@ func (r *Relay) buildConfig(ctlPort int, secret string) ([]byte, error) {
 		}
 		land := "L-" + userName(c)
 		users = append(users, gen.O("username", userName(c), "uuid", c.RelayUUID, "flow", "xtls-rprx-vision"))
-		// 中转服务器本身在境外，直接连住宅IP；域名交给住宅IP那边解析，不在 VPS 上解析
-		proxies = append(proxies, gen.LandProxy(*ip, land, ""))
+		// 中转服务器本身在境外，直接连住宅IP；域名交给住宅IP那边解析，不在 VPS 上解析。
+		// SOCKS5 / HTTP 住宅IP 经本机计量端口转发，用来精确统计每台手机的流量；
+		// HTTPS 住宅IP 要校验证书里的域名，不能改地址，直接连。
+		target := *ip
+		if ip.Protocol != "https" {
+			port, err := r.Meter.Ensure(c.ID, net.JoinHostPort(ip.Host, strconv.Itoa(ip.Port)))
+			if err != nil {
+				return nil, err
+			}
+			target.Host, target.Port = "127.0.0.1", port
+		}
+		keep[c.ID] = true
+		proxies = append(proxies, gen.LandProxy(target, land, ""))
 		rules = append(rules, "IN-USER,"+userName(c)+","+land)
 	}
 	if len(users) == 0 {
@@ -229,6 +246,11 @@ func (r *Relay) Run(ctx context.Context) {
 	cfgPath := filepath.Join(r.Dir, "config.yaml")
 	secret := crypt.RandomToken(16)
 	ctlPort := 0
+	setCtl := func(port int) {
+		r.mu.Lock()
+		r.ctlPort, r.secret = port, secret
+		r.mu.Unlock()
+	}
 
 	var cmd *exec.Cmd
 	var exited chan struct{}
@@ -258,6 +280,7 @@ func (r *Relay) Run(ctx context.Context) {
 		}
 		if cfg == nil {
 			stop()
+			setCtl(0)
 			current = nil
 			r.setStatus("等待第一条链路")
 			return
@@ -287,6 +310,7 @@ func (r *Relay) Run(ctx context.Context) {
 		exited = make(chan struct{})
 		go func(c *exec.Cmd, done chan struct{}) { _ = c.Wait(); close(done) }(cmd, exited)
 		current = cfg
+		setCtl(ctlPort)
 		r.setStatus("运行中")
 		log.Printf("中转已启动，端口 %d", r.ListenPort)
 	}
@@ -311,6 +335,7 @@ func (r *Relay) Run(ctx context.Context) {
 			if i := strings.LastIndex(msg, "\n"); i >= 0 {
 				msg = msg[i+1:]
 			}
+			setCtl(0)
 			log.Printf("中转进程退出，3 秒后重启：%s", msg)
 			r.setStatus("重启中：" + msg)
 			cmd = nil
@@ -339,4 +364,79 @@ func hotReload(port int, secret, path string) error {
 		return fmt.Errorf("热加载返回 HTTP %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// Conn 是中转上的一条活动连接。
+type Conn struct {
+	ID       string
+	Chain    int64 // 属于哪条链路（入站用户 cN），0 表示不属于设备
+	SourceIP string
+	Host     string
+	Upload   int64
+	Download int64
+	Start    time.Time
+}
+
+// Snapshot 是中转当前的连接和进程启动以来的累计流量。
+type Snapshot struct {
+	UploadTotal   int64
+	DownloadTotal int64
+	Conns         []Conn
+}
+
+// Connections 读取中转当前的全部连接；中转没运行时返回 nil。
+func (r *Relay) Connections(ctx context.Context) (*Snapshot, error) {
+	r.mu.Lock()
+	port, secret := r.ctlPort, r.secret
+	r.mu.Unlock()
+	if port == 0 {
+		return nil, nil
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/connections", port), nil)
+	req.Header.Set("Authorization", "Bearer "+secret)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("连接列表返回 HTTP %d", resp.StatusCode)
+	}
+	var body struct {
+		UploadTotal   int64 `json:"uploadTotal"`
+		DownloadTotal int64 `json:"downloadTotal"`
+		Connections   []struct {
+			ID       string    `json:"id"`
+			Upload   int64     `json:"upload"`
+			Download int64     `json:"download"`
+			Start    time.Time `json:"start"`
+			Metadata struct {
+				SourceIP    string `json:"sourceIP"`
+				Host        string `json:"host"`
+				DestIP      string `json:"destinationIP"`
+				InboundUser string `json:"inboundUser"`
+			} `json:"metadata"`
+		} `json:"connections"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+	out := &Snapshot{UploadTotal: body.UploadTotal, DownloadTotal: body.DownloadTotal, Conns: make([]Conn, 0, len(body.Connections))}
+	for _, c := range body.Connections {
+		id, _ := chainIDFromUser(c.Metadata.InboundUser) // 0 表示不属于任何设备（如伪装站点握手）
+		host := c.Metadata.Host
+		if host == "" {
+			host = c.Metadata.DestIP
+		}
+		out.Conns = append(out.Conns, Conn{ID: c.ID, Chain: id, SourceIP: c.Metadata.SourceIP, Host: host, Upload: c.Upload, Download: c.Download, Start: c.Start})
+	}
+	return out, nil
+}
+
+func chainIDFromUser(u string) (int64, bool) {
+	if !strings.HasPrefix(u, "c") {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(u[1:], 10, 64)
+	return id, err == nil && id > 0
 }

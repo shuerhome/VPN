@@ -40,6 +40,7 @@ if [ ! -f .env ]; then
   RELAY_HOST=${RELAY_HOST:-$PUBIP}
   read -rp "中转端口 [443]: " RELAY_PORT
   RELAY_PORT=${RELAY_PORT:-443}
+  read -rp "Telegram 机器人 Token（可选，直接回车跳过，以后可在 .env 里补）: " TG_BOT_TOKEN
   PANEL_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-16)
   SECRET_KEY=$(openssl rand -base64 32)
   cat > .env <<EOF
@@ -50,6 +51,7 @@ TUNNEL_TOKEN=${TUNNEL_TOKEN}
 RELAY_HOST=${RELAY_HOST}
 RELAY_PORT=${RELAY_PORT}
 REALITY_SNI=www.microsoft.com
+TG_BOT_TOKEN=${TG_BOT_TOKEN}
 SYNC_EVERY=30m
 CHECK_EVERY=15m
 EOF
@@ -95,6 +97,7 @@ fi
 cat <<EOF
  中转地址： ${RELAY_HOST}:${RELAY_PORT}
    如果 Hostinger 面板里开了防火墙，要放行 ${RELAY_PORT}/tcp。
+ Telegram： 在面板「设置」页按提示绑定机器人
  查看日志： ${COMPOSE} logs -f panel
  更新版本： git pull && ${COMPOSE} up -d --build
 ────────────────────────────────────────────

@@ -15,6 +15,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +27,7 @@ import (
 	"luodi/internal/crypt"
 	"luodi/internal/gen"
 	"luodi/internal/relay"
+	"luodi/internal/stats"
 	"luodi/internal/store"
 	"luodi/internal/sub"
 )
@@ -55,6 +58,7 @@ func New(a *app.App, rl *relay.Relay, password, publicURL string, assets fs.FS) 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /sub/{token}", s.subscription)
+	mux.HandleFunc("GET /d/{token}", s.share)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
 
@@ -76,6 +80,10 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/chains/{id}/token", s.rotateToken)
 	api.HandleFunc("GET /api/chains/{id}/config", s.chainConfig)
 	api.HandleFunc("POST /api/check-all", s.checkAll)
+	api.HandleFunc("POST /api/telegram/test", s.telegramTest)
+	api.HandleFunc("POST /api/telegram/unbind", s.telegramUnbind)
+	api.HandleFunc("GET /api/backup", s.backupDownload)
+	api.HandleFunc("POST /api/backup/telegram", s.backupTelegram)
 	mux.Handle("/api/", s.requireAuth(api))
 
 	mux.Handle("/", s.static())
@@ -315,13 +323,23 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	}
 	type chainView struct {
 		store.Chain
-		Fronts    []int64 `json:"fronts"`
-		SubURL    string  `json:"sub_url"`
-		RelayLink string  `json:"relay_link"`
+		Fronts    []int64       `json:"fronts"`
+		SubURL    string        `json:"sub_url"`
+		PageURL   string        `json:"page_url"`
+		RelayLink string        `json:"relay_link"`
+		Online    stats.Online  `json:"online"`
+		Traffic   store.Traffic `json:"traffic"`
+	}
+	now := time.Now()
+	traffic, _ := s.App.Store.TrafficSummary(now.Format("2006-01-02"), now.AddDate(0, 0, -29).Format("2006-01-02"))
+	var online map[int64]stats.Online
+	if s.App.Stats != nil {
+		online = s.App.Stats.Snapshot()
 	}
 	cviews := make([]chainView, 0, len(chains))
 	for _, c := range chains {
-		v := chainView{Chain: c, SubURL: s.baseURL(r) + "/sub/" + c.Token}
+		v := chainView{Chain: c, SubURL: s.baseURL(r) + "/sub/" + c.Token, PageURL: s.baseURL(r) + "/d/" + c.Token,
+			Online: online[c.ID], Traffic: traffic[c.ID]}
 		if s.Relay.Enabled() {
 			v.RelayLink, _ = s.Relay.Link(c, ipByID[c.IPID])
 		}
@@ -339,6 +357,11 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"airports": views, "nodes": nodes, "ips": ips, "chains": cviews,
 		"running": s.running.Load() > 0, "now": time.Now().Unix(),
+		"telegram": map[string]any{
+			"enabled": s.App.Notify.Enabled(), "bound": s.App.Notify.Enabled() && s.App.Notify.ChatID() != 0,
+			"bind_code": s.telegramBindCode(), "bot": s.telegramBotName(),
+			"last_backup": s.App.Store.Setting("backup:last"),
+		},
 		"relay": map[string]any{
 			"enabled": s.Relay.Enabled(), "status": s.Relay.Status(),
 			"host": s.Relay.PublicHost, "port": s.Relay.PublicPort, "sni": s.Relay.SNI,
@@ -729,7 +752,23 @@ func (s *Server) subscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	if r.URL.Query().Get("target") == "relay" && s.Relay.Enabled() {
+	// 没指定 target 时按客户端自动选：小火箭等拿中转节点，Stash / Clash 拿机场链路配置，浏览器打开导入页
+	target := r.URL.Query().Get("target")
+	if target == "" {
+		switch clientKind(r.UserAgent()) {
+		case "page":
+			http.Redirect(w, r, "/d/"+token, http.StatusFound)
+			return
+		case "clash":
+			target = "clash"
+		default:
+			target = "relay"
+		}
+	}
+	if target == "relay" && !s.Relay.Enabled() {
+		target = "clash"
+	}
+	if target == "relay" {
 		link, err := s.Relay.Link(*c, *ip)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -740,7 +779,7 @@ func (s *Server) subscription(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(base64.StdEncoding.EncodeToString([]byte(link + "\n"))))
 		return
 	}
-	if r.URL.Query().Get("target") == "rocket" {
+	if target == "rocket" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte(gen.RocketLink(*ip) + "\n"))
 		return
@@ -782,4 +821,62 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; script-src 'self'; connect-src 'self'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// ---------------- Telegram 与备份 ----------------
+
+func (s *Server) telegramBindCode() string {
+	if !s.App.Notify.Enabled() || s.App.Notify.ChatID() != 0 {
+		return ""
+	}
+	return s.App.Notify.BindCode()
+}
+
+func (s *Server) telegramBotName() string {
+	if !s.App.Notify.Enabled() {
+		return ""
+	}
+	return s.App.Notify.BotName()
+}
+
+func (s *Server) telegramTest(w http.ResponseWriter, r *http.Request) {
+	if !s.App.Notify.Enabled() {
+		writeErr(w, http.StatusBadRequest, "还没配置机器人：在 .env 里填 TG_BOT_TOKEN 后重启面板")
+		return
+	}
+	if err := s.App.Notify.Send(r.Context(), "👋 测试消息：落地链路台通知正常。"); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) telegramUnbind(w http.ResponseWriter, r *http.Request) {
+	if err := s.App.Notify.Unbind(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) backupDownload(w http.ResponseWriter, r *http.Request) {
+	path, err := s.App.Backup()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer os.Remove(path)
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", "attachment; filename="+filepath.Base(path))
+	http.ServeFile(w, r, path)
+}
+
+func (s *Server) backupTelegram(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	if err := s.App.BackupToTelegram(ctx); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
 }

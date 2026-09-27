@@ -41,6 +41,10 @@
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.8 9.6 17 3.5l-4.6 13.2-3-5.3Z"/><path d="m9.4 11.4 7.6-7.9"/></svg>
         机场订阅 <span class="count" id="navNodes"></span>
       </a>
+      <a href="#settings" data-view="settings">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2.2M10 15.3v2.2M2.5 10h2.2M15.3 10h2.2M4.7 4.7l1.6 1.6M13.7 13.7l1.6 1.6M4.7 15.3l1.6-1.6M13.7 6.3l1.6-1.6"/></svg>
+        设置 <span class="count" id="navSettings"></span>
+      </a>
     </nav>
     <div class="rail-foot">
       <span id="relayStatus"></span>
@@ -121,7 +125,7 @@
       <div class="panel">
         <div class="table-wrap">
           <table>
-            <thead><tr><th>地址</th><th>出口IP</th><th>地区 · 运营商</th><th>类型</th><th>到期</th><th>绑定设备</th><th></th></tr></thead>
+            <thead><tr><th>地址</th><th>出口IP</th><th>地区 · 运营商</th><th>类型</th><th>到期</th><th>绑定设备</th><th>近 30 天流量</th><th></th></tr></thead>
             <tbody id="ipRows"></tbody>
           </table>
         </div>
@@ -146,6 +150,15 @@
           </table>
         </div>
       </div>
+    </section>
+    <section class="view" id="view-settings" aria-labelledby="h-set" hidden>
+      <div class="view-head">
+        <div>
+          <h1 id="h-set">设置</h1>
+          <p>Telegram 通知、数据备份和中转状态。</p>
+        </div>
+      </div>
+      <div class="settings-grid" id="settingsGrid"></div>
     </section>
   </main>
 </div>

@@ -17,6 +17,11 @@
 - **住宅IP**：整段粘贴自动识别 IP、端口、账户、密码（十几种常见格式，见下文）；自动检测出口IP、地区、运营商、是否机房IP；到期提醒。
 - **链路**：设备 + 账号 + 住宅IP，一个 IP 只能绑一台设备；每 15 分钟自动检测两条路径的出口IP，出口变了会标红。
 - **二维码**：中转节点二维码、Stash 订阅二维码、住宅IP节点二维码；泄露了可一键重置，旧码立即失效。
+- **使用情况**：每台手机是否在线、从哪个IP连进来、今天和近 30 天用了多少流量（中转模式，按字节精确计量）。
+- **一码一机**：同一个二维码被两个以上的IP同时使用时告警，可一键重置。
+- **一个订阅链接通吃**：小火箭 / Loon / Quantumult X 拉到中转节点，Stash / Clash 拉到机场链路配置，浏览器打开则是导入页。
+- **设备导入页**：给操作手机的同事发一个链接，打开就是二维码和手机时区、语言设置说明，不需要面板密码。
+- **Telegram 机器人**：出口IP变化、住宅IP连不上、一码多机、住宅IP / 机场快到期、机场流量用到 90%、订阅同步失败时推送；`/status` 看概况，`/backup` 立即备份；每天凌晨 4 点自动把数据库备份发给你。
 - **安全**：面板密码登录（带失败次数限制），住宅IP密码、订阅链接、节点参数 AES-256-GCM 加密存储；面板只通过 Cloudflare Tunnel 对外，不开放端口。
 
 ## 部署（Debian 13 VPS + Cloudflare 域名）
@@ -55,6 +60,12 @@ bash deploy/install.sh
 5. 用 iPhone 小火箭扫右侧二维码 → 选中节点 → 打开开关。
 6. 按「环境检查」提示，把 iPhone 的时区、语言、地区改成和住宅IP一致。
 
+### Telegram 通知（可选）
+
+1. Telegram 里找 **@BotFather** → 发 `/newbot` → 按提示起名，拿到 Token。
+2. 安装时填入；或之后在 `/opt/luodi/.env` 里加 `TG_BOT_TOKEN=你的Token`，再执行 `docker compose up -d`。
+3. 面板「设置」页会显示一个绑定码，在 Telegram 里给机器人发 `/bind 绑定码`。只有绑定的这个聊天能收到通知、下命令。
+
 ### 日常维护
 
 ```bash
@@ -76,6 +87,7 @@ git pull && docker compose up -d --build   # 更新
 | `RELAY_HOST` | 手机连接中转用的地址（VPS 公网 IP，不能是走 Cloudflare 代理的域名） | 空则不开启中转 |
 | `RELAY_PORT` | 中转对外端口 | `443` |
 | `REALITY_SNI` | Reality 伪装的网站 | `www.microsoft.com` |
+| `TG_BOT_TOKEN` | Telegram 机器人 Token | 空则不开启通知 |
 | `SYNC_EVERY` / `CHECK_EVERY` | 订阅同步 / 链路检测间隔 | `30m` / `15m` |
 | `CHECK_URLS` | 返回出口IP的检测接口，逗号分隔 | ipify、ifconfig.me、icanhazip |
 
@@ -100,6 +112,7 @@ git pull && docker compose up -d --build   # 更新
 
 - **检测**：服务器临时启动一个 mihomo，按手机上一模一样的路径（机场节点 → 住宅IP，或直连住宅IP）访问出口IP接口。第一次检测到的出口IP记为基准，之后出口变化会报警；确认供应商换线后可以点「以当前出口为准」。
 - **中转**：VPS 上常驻一个 mihomo，对外开一个 VLESS Reality 入站。每条链路是其中一个用户，按用户把流量送到它绑定的住宅IP；认不出的连接一律拒绝。增删链路会热加载，不影响其他手机。
+- **流量计量**：中转发往住宅IP的连接先经过面板进程里的一个本机转发端口（每台手机一个），逐字节计数，所以短连接也不会漏。在线来源IP从中转的连接列表每 2 秒采样一次。Stash 路径不经过 VPS，统计不到。
 - **Stash 订阅**：住宅IP节点写 `dialer-proxy: 前置组`，前置组是与住宅IP同国家的机场节点（fallback 自动切换），「社媒出口」组里只有住宅IP一个节点。
 
 ## 开发
@@ -118,7 +131,10 @@ cmd/panel         程序入口
 internal/sub      机场订阅拉取与解析
 internal/gen      Stash / Clash Meta 配置、分享链接生成
 internal/check    用 mihomo 检测链路和节点
-internal/relay    中转（VLESS Reality）
+internal/relay    中转（VLESS Reality）与流量计量转发
+internal/stats    在线状态、来源IP、流量统计
+internal/notify   Telegram 机器人
+internal/app      检测调度、告警规则、备份
 internal/store    SQLite 存储与加密字段
 internal/server   网页与接口
 web               前端（原生 JS，编译进二进制）

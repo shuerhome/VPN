@@ -17,8 +17,10 @@ import (
 	"luodi/internal/app"
 	"luodi/internal/check"
 	"luodi/internal/crypt"
+	"luodi/internal/notify"
 	"luodi/internal/relay"
 	"luodi/internal/server"
+	"luodi/internal/stats"
 	"luodi/internal/store"
 	"luodi/web"
 )
@@ -95,16 +97,28 @@ func main() {
 		PublicPort: envInt("RELAY_PORT", 443),
 		ListenPort: envInt("RELAY_LISTEN", 8443),
 		SNI:        env("REALITY_SNI", "www.microsoft.com"),
-		Store:      st,
+		Dest:       os.Getenv("REALITY_DEST"), // 默认 SNI:443
+
+		Store: st,
 	}
 	if !rl.Enabled() {
 		log.Printf("未设置 RELAY_HOST，中转模式（小火箭扫码直连）不开启")
+	}
+
+	a.RelayEnabled = rl.Enabled()
+	a.TmpDir = workDir
+	a.Notify = &notify.Telegram{Token: os.Getenv("TG_BOT_TOKEN"), Store: st, APIURL: os.Getenv("TG_API_URL")}
+	a.Stats = &stats.Collector{Relay: rl, Store: st, Alert: a.MultiDeviceAlert}
+	if !a.Notify.Enabled() {
+		log.Printf("未设置 TG_BOT_TOKEN，Telegram 通知和备份不开启")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go a.Loop(ctx)
 	go rl.Run(ctx)
+	go a.Stats.Run(ctx)
+	go a.Notify.Poll(ctx, a.HandleCommand)
 
 	srv := &http.Server{
 		Addr:              env("LISTEN", ":8080"),

@@ -95,6 +95,8 @@ type Chain struct {
 	CheckError  string    `json:"check_error"`
 	CheckFront  string    `json:"check_front"`
 	RelayUUID   string    `json:"-"`
+	LastSeen    int64     `json:"last_seen"` // 最近一次通过中转上网的时间
+	LastSrc     string    `json:"last_src"`  // 最近一次连接中转的来源IP
 }
 
 type Store struct {
@@ -130,6 +132,10 @@ CREATE TABLE IF NOT EXISTS chains (
   check_error TEXT NOT NULL DEFAULT '', check_front TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS traffic (
+  chain_id INTEGER NOT NULL, day TEXT NOT NULL, up INTEGER NOT NULL DEFAULT 0, down INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(chain_id, day)
+);
 `
 
 func Open(path string, box *crypt.Box) (*Store, error) {
@@ -144,6 +150,8 @@ func Open(path string, box *crypt.Box) (*Store, error) {
 	// 后加的字段：已存在时 SQLite 会报 duplicate column，忽略即可
 	for _, m := range []string{
 		`ALTER TABLE chains ADD COLUMN relay_uuid TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE chains ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE chains ADD COLUMN last_src TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := db.Exec(m); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return nil, fmt.Errorf("升级数据库: %w", err)
@@ -441,13 +449,13 @@ func (s *Store) ResetBaseline(id int64) error {
 
 // ---------------- chains ----------------
 
-const chainCols = `id,device,accounts,ip_id,front_mode,front_node_id,route,token,created_at,check_at,check_exit,check_ms,check_error,check_front,relay_uuid`
+const chainCols = `id,device,accounts,ip_id,front_mode,front_node_id,route,token,created_at,check_at,check_exit,check_ms,check_error,check_front,relay_uuid,last_seen,last_src`
 
 func scanChain(sc interface{ Scan(...any) error }) (Chain, error) {
 	var c Chain
 	var acc string
 	err := sc.Scan(&c.ID, &c.Device, &acc, &c.IPID, &c.FrontMode, &c.FrontNodeID, &c.Route, &c.Token, &c.CreatedAt,
-		&c.CheckAt, &c.CheckExit, &c.CheckMS, &c.CheckError, &c.CheckFront, &c.RelayUUID)
+		&c.CheckAt, &c.CheckExit, &c.CheckMS, &c.CheckError, &c.CheckFront, &c.RelayUUID, &c.LastSeen, &c.LastSrc)
 	if err == nil {
 		_ = json.Unmarshal([]byte(acc), &c.Accounts)
 	}
@@ -514,6 +522,9 @@ func (s *Store) UpdateChain(c Chain) error {
 }
 
 func (s *Store) DeleteChain(id int64) error {
+	if _, err := s.db.Exec(`DELETE FROM traffic WHERE chain_id=?`, id); err != nil {
+		return err
+	}
 	_, err := s.db.Exec(`DELETE FROM chains WHERE id=?`, id)
 	return err
 }
@@ -549,5 +560,53 @@ func (s *Store) fillRelayUUIDs() error {
 
 func (s *Store) UpdateChainCheck(id int64, exit string, ms int, errMsg, front string) error {
 	_, err := s.db.Exec(`UPDATE chains SET check_at=?, check_exit=?, check_ms=?, check_error=?, check_front=? WHERE id=?`, now(), exit, ms, errMsg, front, id)
+	return err
+}
+
+// ---------------- 使用情况 ----------------
+
+func (s *Store) UpdateChainSeen(id int64, ts int64, src string) error {
+	_, err := s.db.Exec(`UPDATE chains SET last_seen=?, last_src=? WHERE id=?`, ts, src, id)
+	return err
+}
+
+// AddTraffic 累加某条链路某一天的流量（day 形如 2026-09-27）。
+func (s *Store) AddTraffic(chainID int64, day string, up, down int64) error {
+	_, err := s.db.Exec(`INSERT INTO traffic(chain_id,day,up,down) VALUES(?,?,?,?)
+		ON CONFLICT(chain_id,day) DO UPDATE SET up=up+excluded.up, down=down+excluded.down`, chainID, day, up, down)
+	return err
+}
+
+type Traffic struct {
+	TodayUp   int64 `json:"today_up"`
+	TodayDown int64 `json:"today_down"`
+	MonthUp   int64 `json:"d30_up"`
+	MonthDown int64 `json:"d30_down"`
+}
+
+// TrafficSummary 返回每条链路今天和近 30 天的流量。
+func (s *Store) TrafficSummary(today, since string) (map[int64]Traffic, error) {
+	rows, err := s.db.Query(`SELECT chain_id,
+		SUM(CASE WHEN day=? THEN up ELSE 0 END), SUM(CASE WHEN day=? THEN down ELSE 0 END), SUM(up), SUM(down)
+		FROM traffic WHERE day>=? GROUP BY chain_id`, today, today, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]Traffic{}
+	for rows.Next() {
+		var id int64
+		var t Traffic
+		if err := rows.Scan(&id, &t.TodayUp, &t.TodayDown, &t.MonthUp, &t.MonthDown); err != nil {
+			return nil, err
+		}
+		out[id] = t
+	}
+	return out, rows.Err()
+}
+
+// Backup 把数据库完整复制到 path（加密字段保持加密）。
+func (s *Store) Backup(path string) error {
+	_, err := s.db.Exec(`VACUUM INTO ?`, path)
 	return err
 }

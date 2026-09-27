@@ -11,13 +11,19 @@ import (
 	"luodi/internal/check"
 	"luodi/internal/gen"
 	"luodi/internal/geo"
+	"luodi/internal/notify"
+	"luodi/internal/stats"
 	"luodi/internal/store"
 	"luodi/internal/sub"
 )
 
 type App struct {
-	Store  *store.Store
-	Runner *check.Runner
+	Store        *store.Store
+	Runner       *check.Runner
+	Notify       *notify.Telegram
+	Stats        *stats.Collector
+	RelayEnabled bool
+	TmpDir       string
 
 	SyncEvery  time.Duration
 	CheckEvery time.Duration
@@ -58,6 +64,7 @@ func (a *App) SyncAll(ctx context.Context) {
 			log.Printf("同步 %s 失败: %v", ap.Name, err)
 		}
 	}
+	a.EvaluateAlerts()
 }
 
 // ---------------- 检测 ----------------
@@ -84,6 +91,7 @@ func (a *App) TestNodes(ctx context.Context) error {
 func (a *App) CheckChains(ctx context.Context, ids ...int64) error {
 	a.busy.Lock()
 	defer a.busy.Unlock()
+	defer a.EvaluateAlerts()
 
 	chains, err := a.Store.Chains()
 	if err != nil {
@@ -151,6 +159,7 @@ func (a *App) CheckChains(ctx context.Context, ids ...int64) error {
 func (a *App) CheckIPs(ctx context.Context, ids ...int64) error {
 	a.busy.Lock()
 	defer a.busy.Unlock()
+	defer a.EvaluateAlerts()
 	var jobs []check.ChainJob
 	ipOf := map[string]store.IP{}
 	for _, id := range ids {
@@ -195,8 +204,10 @@ func (a *App) recordIP(ctx context.Context, ip store.IP, r check.ChainResult) {
 func (a *App) Loop(ctx context.Context) {
 	syncT := time.NewTicker(a.SyncEvery)
 	checkT := time.NewTicker(a.CheckEvery)
+	hourT := time.NewTicker(time.Hour)
 	defer syncT.Stop()
 	defer checkT.Stop()
+	defer hourT.Stop()
 	// 启动后先同步一次、检测一次
 	go func() {
 		a.SyncAll(ctx)
@@ -214,6 +225,8 @@ func (a *App) Loop(ctx context.Context) {
 			if err := a.CheckChains(ctx); err != nil {
 				log.Printf("检测失败: %v", err)
 			}
+		case <-hourT.C:
+			a.dailyBackup(ctx)
 		}
 	}
 }

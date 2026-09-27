@@ -1,7 +1,10 @@
 package sub
 
 import (
+	"context"
 	"encoding/base64"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -133,5 +136,55 @@ func TestUnsupportedAndProviders(t *testing.T) {
 	res, err := Parse([]byte("proxies:\n  - {name: \"香港 01\", type: ss, server: a.example.org, port: 443, cipher: aes-128-gcm, password: p}\n  - {name: \"香港 02\", type: ninja, server: b.example.org, port: 443}\n"), "")
 	if err != nil || len(res.Nodes) != 1 || !strings.Contains(res.Report.Describe(), "ninja（1 个）") {
 		t.Fatalf("部分可用时应导入可用的并提示跳过的: %v %+v", err, res)
+	}
+}
+
+func TestDetectFormat(t *testing.T) {
+	enc := func(b []byte) []byte { return []byte(base64.StdEncoding.EncodeToString(b)) }
+	blob := []byte{0x8f, 0x01, 0x00, 0xfe, 0x33, 0x9a, 0x02, 0x10, 0xc3, 0x28, 0x07, 0x1b, 0x00, 0x00, 0x91, 0x04}
+	cases := []struct {
+		body []byte
+		ct   string
+		want string
+	}{
+		{[]byte("proxies:\n  - {name: a, type: ss}\n"), "", "Clash 配置"},
+		{[]byte("ss://YWVzOnA@a.example.org:443#a\n"), "", "节点链接列表"},
+		{enc([]byte("vless://u@a.example.org:443#a\n")), "", "Base64 节点链接"},
+		{enc(blob), "text/plain", "Base64 编码的二进制数据（很可能是加密的）"},
+		{blob, "", "二进制数据（很可能是加密的）"},
+		{[]byte(`{"code":0,"data":"x"}`), "application/json", "JSON 数据"},
+		{[]byte("<!DOCTYPE html><html></html>"), "text/html", "网页（HTML）"},
+		{[]byte("   "), "", "空内容"},
+	}
+	for _, c := range cases {
+		if got := DetectFormat(c.body, c.ct); got != c.want {
+			t.Errorf("%q: 得到 %q，应为 %q", c.body, got, c.want)
+		}
+	}
+}
+
+// 同一个链接，机场按客户端身份返回不同内容：普通身份拿到明文节点，官方客户端身份拿到加密数据。
+func TestProbeShowsFormatAndDigest(t *testing.T) {
+	plain := "proxies:\n  - {name: \"！！！请尽快使用官方客户端！！！\", type: ss, server: n.example.org, port: 443, cipher: aes-128-gcm, password: p}\n" +
+		"  - {name: \"香港 01\", type: ss, server: a.example.org, port: 443, cipher: aes-128-gcm, password: p}\n"
+	secret := base64.StdEncoding.EncodeToString([]byte{0x8f, 0x01, 0x00, 0xfe, 0x33, 0x9a, 0x02, 0x10, 0xc3, 0x28, 0x07, 0x1b})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.UserAgent(), "V-Ninja") {
+			_, _ = w.Write([]byte(secret))
+			return
+		}
+		_, _ = w.Write([]byte(plain))
+	}))
+	defer srv.Close()
+	res := Probe(context.Background(), srv.URL+"/api/getData/Authorize?token=x", false, []string{"V-Ninja/2.0", "clash.meta", "Stash/2.7.0"})
+	official, meta, stash := res[0], res[1], res[2]
+	if official.Error == "" || official.Format != "Base64 编码的二进制数据（很可能是加密的）" || official.Bytes != len(secret) {
+		t.Fatalf("官方客户端身份应显示为加密数据: %+v", official)
+	}
+	if meta.Nodes != 1 || meta.Format != "Clash 配置" || len(meta.Notices) != 1 {
+		t.Fatalf("普通身份应拿到明文节点和提示: %+v", meta)
+	}
+	if meta.Digest == "" || meta.Digest != stash.Digest || meta.Digest == official.Digest {
+		t.Fatalf("内容相同的指纹应相同、不同的应不同: %q %q %q", meta.Digest, stash.Digest, official.Digest)
 	}
 }

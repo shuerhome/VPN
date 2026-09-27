@@ -3,8 +3,11 @@ package sub
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -84,9 +88,17 @@ func Fetch(ctx context.Context, rawURL string, insecure bool, ua string) (*Resul
 
 // Download 只下载订阅内容，返回正文和 subscription-userinfo 头。
 func Download(ctx context.Context, rawURL string, insecure bool, ua string) ([]byte, string, error) {
+	body, h, err := download(ctx, rawURL, insecure, ua)
+	if err != nil {
+		return nil, "", err
+	}
+	return body, h.Get("subscription-userinfo"), nil
+}
+
+func download(ctx context.Context, rawURL string, insecure bool, ua string) ([]byte, http.Header, error) {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return nil, "", errors.New("订阅链接格式不对，应以 http:// 或 https:// 开头")
+		return nil, nil, errors.New("订阅链接格式不对，应以 http:// 或 https:// 开头")
 	}
 	if ua == "" {
 		ua = DefaultUA
@@ -97,26 +109,26 @@ func Download(ctx context.Context, rawURL string, insecure bool, ua string) ([]b
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 	req.Header.Set("User-Agent", ua)
 	resp, err := client.Do(req)
 	if err != nil {
 		var cerr *tls.CertificateVerificationError
 		if errors.As(err, &cerr) {
-			return nil, "", errors.New("证书校验失败。订阅地址是纯 IP 或自签证书时，勾选「忽略证书错误」")
+			return nil, nil, errors.New("证书校验失败。订阅地址是纯 IP 或自签证书时，勾选「忽略证书错误」")
 		}
-		return nil, "", fmt.Errorf("请求订阅失败：%v", err)
+		return nil, nil, fmt.Errorf("请求订阅失败：%v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("订阅返回 HTTP %d，检查链接是否过期", resp.StatusCode)
+		return nil, nil, fmt.Errorf("订阅返回 HTTP %d，检查链接是否过期", resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 20<<20))
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
-	return body, resp.Header.Get("subscription-userinfo"), nil
+	return body, resp.Header, nil
 }
 
 // Parse 解析订阅正文（Clash YAML 或节点链接列表），过滤掉「剩余流量」「请使用官方客户端」这类说明节点。
@@ -159,6 +171,9 @@ type ProbeResult struct {
 	Notices []string       `json:"notices"` // 说明节点（如「请使用官方客户端」）
 	HasInfo bool           `json:"has_info"`
 	Error   string         `json:"error"`
+	Format  string         `json:"format"` // 拿到的内容是什么：Clash 配置、Base64 节点链接、加密或二进制数据……
+	Bytes   int            `json:"bytes"`
+	Digest  string         `json:"digest"` // 内容指纹：指纹相同说明机场给的是同一份内容
 }
 
 // Probe 用一组客户端身份分别拉取订阅，找出机场对哪个身份给的节点最全。
@@ -171,7 +186,15 @@ func Probe(ctx context.Context, rawURL string, insecure bool, uas []string) []Pr
 			sem <- struct{}{}
 			defer func() { <-sem; done <- struct{}{} }()
 			r := ProbeResult{UA: ua, Types: map[string]int{}}
-			res, err := Fetch(ctx, rawURL, insecure, ua)
+			body, h, err := download(ctx, rawURL, insecure, ua)
+			if err != nil {
+				r.Error = err.Error()
+				out[i] = r
+				return
+			}
+			sum := sha256.Sum256(body)
+			r.Format, r.Bytes, r.Digest = DetectFormat(body, h.Get("Content-Type")), len(body), hex.EncodeToString(sum[:4])
+			res, err := Parse(body, h.Get("subscription-userinfo"))
 			if err != nil {
 				r.Error = err.Error()
 				out[i] = r
@@ -191,6 +214,57 @@ func Probe(ctx context.Context, rawURL string, insecure bool, uas []string) []Pr
 		<-done
 	}
 	return out
+}
+
+// DetectFormat 说明订阅返回的是什么内容。官方客户端专用的订阅常常是加密的，
+// 这时面板解不出节点，但能告诉用户「拿到的是加密数据」，而不是笼统地报错。
+func DetectFormat(body []byte, contentType string) string {
+	text := strings.TrimSpace(strings.TrimPrefix(string(body), "\uFEFF"))
+	lower := strings.ToLower(text)
+	switch {
+	case text == "":
+		return "空内容"
+	case !utf8.ValidString(text) || binaryRatio(text) > 0.1:
+		return "二进制数据（很可能是加密的）"
+	case strings.HasPrefix(lower, "<!doctype html") || strings.HasPrefix(lower, "<html"):
+		return "网页（HTML）"
+	case (text[0] == '{' || text[0] == '[') && json.Valid([]byte(text)):
+		return "JSON 数据"
+	case strings.Contains(text, "proxies:") || strings.Contains(text, "proxy-providers:"):
+		return "Clash 配置"
+	case strings.Contains(text, "://"):
+		return "节点链接列表"
+	}
+	if dec, ok := decodeB64(text); ok {
+		switch {
+		case strings.Contains(dec, "://"):
+			return "Base64 节点链接"
+		case strings.Contains(dec, "proxies:"):
+			return "Base64 编码的 Clash 配置"
+		case !utf8.ValidString(dec) || binaryRatio(dec) > 0.1:
+			return "Base64 编码的二进制数据（很可能是加密的）"
+		}
+		return "Base64 编码的文本"
+	}
+	if strings.Contains(strings.ToLower(contentType), "octet-stream") {
+		return "二进制数据（很可能是加密的）"
+	}
+	return "看不懂的文本"
+}
+
+// binaryRatio 是控制字符（换行、回车、制表符除外）和无效字符所占的比例。
+func binaryRatio(s string) float64 {
+	n, bad := 0, 0
+	for _, r := range s {
+		n++
+		if r == utf8.RuneError || (r < 0x20 && r != '\n' && r != '\r' && r != '\t') || r == 0x7f {
+			bad++
+		}
+	}
+	if n == 0 {
+		return 0
+	}
+	return float64(bad) / float64(n)
 }
 
 // ParseUserInfo 解析 "upload=1; download=2; total=3; expire=4"。

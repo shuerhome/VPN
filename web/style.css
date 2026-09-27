@@ -419,9 +419,12 @@ td input[type="date"].is-empty { color: var(--muted); }
 .probe-extra input { flex: 1; min-width: 0; height: var(--h-sm); border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 10px; background: var(--surface); font-size: 13px; }
 .probe tr.best td { background: var(--ok-soft); }
 .probe td { vertical-align: top; }
-.probe td:nth-child(3) { white-space: normal; min-width: 240px; max-width: 520px; }
-.probe td:nth-child(3) .sub { white-space: normal; }
-.probe td:nth-child(4) { white-space: normal; max-width: 260px; }
+.probe td:nth-child(1) .sub { font-family: var(--font-ui); }
+.probe td:nth-child(2) { white-space: normal; min-width: 150px; max-width: 220px; }
+.probe td:nth-child(4) { white-space: normal; min-width: 220px; max-width: 480px; }
+.probe td:nth-child(4) .sub { white-space: normal; }
+.probe td:nth-child(5) { white-space: normal; max-width: 240px; }
+.probe td.hint.warn { white-space: normal; }
 .probe-verdict { border-radius: 6px; padding: 10px 12px; font-size: 13px; line-height: 1.6; }
 .probe-verdict.ok { background: var(--ok-soft); color: var(--ok); }
 .probe-verdict.warn { background: var(--warn-soft); color: var(--warn); }

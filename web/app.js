@@ -533,32 +533,52 @@
     box.hidden = false;
     const air = airById(p.id);
     const head = '<div class="probe-head"><h2>' + esc(air ? air.name : '') + '：用不同客户端身份拉订阅</h2><button class="btn small" type="button" data-act="probe-close">关闭</button></div>' +
-      '<p class="hint">很多机场会按客户端返回不同的节点，给第三方客户端的可能是旧节点或只有一条「请使用官方客户端」的提示。选节点最多、没有提示的那个身份。</p>' +
-      '<form id="probeForm" class="probe-extra"><input id="probeExtra" class="mono" placeholder="也可以填官方客户端的 User-Agent 一起试（可选）" aria-label="额外的客户端身份" spellcheck="false"><button class="btn small" type="submit">重新探测</button></form>';
+      '<p class="hint">同一个订阅链接，很多机场会按客户端返回不同的内容：给第三方客户端的可能是旧节点，或只有一条「请使用官方客户端」的提示；给官方客户端的可能是加密数据。「内容指纹」相同，说明机场给的是同一份内容。</p>' +
+      '<form id="probeForm" class="probe-extra"><input id="probeExtra" class="mono" placeholder="填官方客户端的 User-Agent 一起试（可选）" aria-label="额外的客户端身份" spellcheck="false"><button class="btn small" type="submit">重新探测</button></form>';
     if (p.loading) { box.innerHTML = head + '<p class="hint">正在用 ' + (p.count || 15) + ' 种身份分别拉取订阅，大约 10～30 秒…</p>'; return; }
     if (p.error) { box.innerHTML = head + '<p class="hint warn">' + esc(p.error) + '</p>'; return; }
     const ok = p.results.filter(r => !r.error);
     const nudge = r => (r.notices || []).some(n => /客户端|官方|请尽快/.test(n));
     const best = ok.filter(r => !nudge(r)).sort((a, b) => b.nodes - a.nodes)[0];
     const most = ok.slice().sort((a, b) => b.nodes - a.nodes)[0];
+    const sealed = p.results.filter(r => /加密/.test(r.format || ''));
+    const digests = new Set(p.results.filter(r => r.digest).map(r => r.digest));
+    const kb = n => n >= 1024 ? (n / 1024).toFixed(1) + ' KB' : n + ' 字节';
     let verdict = '';
-    if (!ok.length) verdict = '<div class="probe-verdict bad">所有身份都拉取失败，检查订阅链接是否过期。</div>';
+    if (!ok.length && !sealed.length) verdict = '<div class="probe-verdict bad">所有身份都没拿到可用的节点，检查订阅链接是否过期。</div>';
     else if (best) verdict = '<div class="probe-verdict ok">推荐 <b class="mono">' + esc(best.ua) + '</b>：' + best.nodes + ' 个节点，没有「请使用官方客户端」提示。</div>';
-    else verdict = '<div class="probe-verdict warn">所有身份拿到的都带「请使用官方客户端」提示，最多 ' + most.nodes + ' 个节点（' + esc(most.ua) + '）。' +
-      '说明这个订阅链接给不了官方客户端里的那套节点：官方客户端走的是自己的接口。可以继续用节点最多的身份，或者从官方客户端里复制配置，用「粘贴节点配置」导入。</div>';
-    const rows = p.results.map(r => {
-      const isCur = (r.ua === (p.current || 'clash.meta'));
+    else if (most) verdict = '<div class="probe-verdict warn">所有身份拿到的都带「请使用官方客户端」提示，最多 ' + most.nodes + ' 个节点（' + esc(most.ua) + '）。' +
+      '这个链接给第三方客户端的就是这一份，官方客户端里的那套节点不在里面。可以继续用节点最多的身份。</div>';
+    if (sealed.length) verdict += '<div class="probe-verdict warn"><b class="mono">' + sealed.map(r => esc(r.ua)).join('、') + '</b> 拿到的是' + esc(sealed[0].format) + '（' + kb(sealed[0].bytes) + '），和其他身份拿到的内容不一样。' +
+      '说明机场按客户端身份给不同的订阅：给官方客户端的是加密数据，只有官方客户端自己能解开，面板、Stash 和小火箭都用不了。</div>';
+    // 拿到相同内容（指纹相同）的身份合成一行
+    const cur = p.current || 'clash.meta';
+    const groups = [];
+    p.results.forEach(r => {
+      const key = r.digest && !r.error ? 'd:' + r.digest : 'e:' + r.ua;
+      let g = groups.find(x => x.key === key);
+      if (!g) { g = { key, r, uas: [] }; groups.push(g); }
+      g.uas.push(r.ua);
+    });
+    const rows = groups.map(g => {
+      const r = g.r;
+      const hasCur = g.uas.includes(cur);
+      const isBest = best && g.uas.includes(best.ua);
+      const pick = isBest ? best.ua : g.uas[0];
+      const who = g.uas.slice(0, 3).map(esc).join('<br>') + (g.uas.length > 3 ? '<span class="sub">等 ' + g.uas.length + ' 个身份</span>' : '');
       const types = Object.entries(r.types || {}).map(([k, v]) => k + ' ' + v).join('、');
       const notice = (r.notices || []).filter(n => /客户端|官方|请/.test(n));
-      return '<tr' + (best && r.ua === best.ua ? ' class="best"' : '') + '><td class="mono">' + esc(r.ua) + (isCur ? ' <span class="tag">当前</span>' : '') + (best && r.ua === best.ua ? ' <span class="tag good">推荐</span>' : '') + '</td>' +
-        (r.error ? '<td colspan="3" class="hint warn">' + esc(r.error) + '</td><td></td>'
+      const content = r.format ? esc(r.format) + '<span class="sub mono nw">' + kb(r.bytes) + ' · ' + esc(r.digest) + '</span>' : '<span class="hint">—</span>';
+      return '<tr' + (isBest ? ' class="best"' : '') + '><td class="mono" title="' + esc(g.uas.join('\n')) + '">' + who + (hasCur ? ' <span class="tag">当前</span>' : '') + (isBest ? ' <span class="tag good">推荐</span>' : '') + '</td>' +
+        '<td>' + content + '</td>' +
+        (r.error ? '<td colspan="3" class="hint warn">' + esc(/加密/.test(r.format || '') ? '加密数据，面板、Stash、小火箭都解不开' : r.error) + '</td><td></td>'
           : '<td class="mono">' + r.nodes + '</td><td>' + esc(types) + '<span class="sub">' + esc((r.sample || []).join('、')) + '</span></td>' +
-            '<td>' + (notice.length ? '<span class="hint warn">' + esc(notice[0]) + '</span>' : '<span class="hint">—</span>') + '</td>' +
-            '<td>' + (isCur ? '' : '<button class="btn small" type="button" data-act="probe-use" data-ua="' + esc(r.ua) + '">用这个</button>') + '</td>') +
+            '<td>' + (notice.length ? '<span class="hint warn" title="' + esc(notice[0]) + '">带「请使用官方客户端」提示</span>' : '<span class="hint">—</span>') + '</td>' +
+            '<td>' + (hasCur ? '' : '<button class="btn small" type="button" data-act="probe-use" data-ua="' + esc(pick) + '">用这个</button>') + '</td>') +
       '</tr>';
     }).join('');
-    box.innerHTML = head + verdict + '<div class="table-wrap"><table><thead><tr><th>客户端身份</th><th>节点数</th><th>协议 · 节点示例</th><th>提示</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-      '<p class="hint">如果所有身份都拿不到你在官方客户端里看到的节点，说明官方客户端走的是别的接口：在官方客户端里导出或查看配置文件，用「粘贴节点配置」导入。</p>';
+    box.innerHTML = head + verdict + '<div class="table-wrap"><table><thead><tr><th>客户端身份</th><th>拿到的内容 · 大小 · 指纹</th><th>节点数</th><th>协议 · 节点示例</th><th>提示</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="hint">' + p.results.length + ' 个身份一共拿到 ' + digests.size + ' 种不同的内容，相同的已合并成一行。官方客户端的 User-Agent 一般在它的订阅设置里能看到（例如右键订阅 →「编辑信息」）；只换 User-Agent 拿不到时，说明官方客户端还带了别的识别信息。</p>';
   }
 
   async function runProbe(id, extra) {

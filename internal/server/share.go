@@ -50,6 +50,7 @@ var langByCountry = map[string]string{
 }
 
 type sharePage struct {
+	ScriptURL string
 	Device    string
 	Accounts  []store.Account
 	Relay     bool
@@ -122,7 +123,7 @@ button.btn{border:0;font:inherit;font-weight:600;cursor:pointer;width:100%}butto
 <p class="muted" style="margin:0">设置 → 通用 → 日期与时间（关闭自动设置后选城市）；设置 → 通用 → 语言与地区。</p>
 </section>
 <p class="muted">这个页面只给这台手机用，不要转发。链接泄露时请联系管理员重置。</p>
-</main><script src="/share.js"></script></body></html>`))
+</main><script src="{{.ScriptURL}}"></script></body></html>`))
 
 // sharePage 渲染设备导入页（凭订阅 token 访问，无需登录）。
 func (s *Server) share(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +139,8 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) {
 	}
 	sub := s.baseURL(r) + "/sub/" + c.Token
 	p := sharePage{
-		Device: c.Device, Accounts: c.Accounts,
+		ScriptURL: s.assetSet().URL("share.js"),
+		Device:    c.Device, Accounts: c.Accounts,
 		SubURL: sub + "?target=clash", SubQR: qrDataURI(sub + "?target=clash"),
 		StashURL: template.URL("stash://install-config?url=" + url.QueryEscape(sub+"?target=clash")),
 		IP:       ip.ExpectedExit(), Country: ip.Country, City: ip.City, Timezone: ip.Timezone, Language: langByCountry[ip.CountryCode],

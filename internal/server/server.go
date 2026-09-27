@@ -42,6 +42,8 @@ type Server struct {
 	Relay     *relay.Relay
 
 	sessionKey []byte
+	assets     *assetSet
+	assetsOnce sync.Once
 	running    atomic.Int32
 	limiter    loginLimiter
 }
@@ -806,16 +808,6 @@ func (s *Server) subscription(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---------------- 静态文件 ----------------
-
-func (s *Server) static() http.Handler {
-	files := http.FileServer(http.FS(s.Assets))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
-			w.Header().Set("Cache-Control", "no-cache")
-		}
-		files.ServeHTTP(w, r)
-	})
-}
 
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

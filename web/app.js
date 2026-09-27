@@ -5,6 +5,12 @@
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+  // 脚本出错时给个提示，而不是按钮点了没反应（常见于刚更新面板、浏览器还拿着旧文件）
+  window.addEventListener('error', () => {
+    const t = document.getElementById('toast');
+    if (t) { t.textContent = '页面出错了。如果刚更新过面板，请按 Ctrl+Shift+R（Mac：Cmd+Shift+R）强制刷新。'; t.hidden = false; }
+  });
+
   if (window.qrcode && qrcode.stringToBytesFuncs && qrcode.stringToBytesFuncs['UTF-8']) {
     qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
   }
@@ -518,6 +524,9 @@
     }).join('') || '<option value="">先去「住宅IP」添加</option>';
     const free = S.data.ips.find(r => !chainOfIp(r.id) && !r.hosting) || S.data.ips.find(r => !chainOfIp(r.id));
     if (free) $('#nIp').value = String(free.id);
+    const noFree = !chain && !free;
+    $('#sheetSubmit').disabled = noFree;
+    if (noFree) $('#sheetErr').textContent = '没有空闲的住宅IP：每个IP只能绑一台设备。先去「住宅IP」页添加新的IP。';
     const alive = S.data.nodes.filter(n => n.delay_ms >= 0).sort((a, b) => (a.country || '').localeCompare(b.country || '') || a.delay_ms - b.delay_ms);
     $('#nNode').innerHTML = alive.map(n => '<option value="' + n.id + '">' + esc((n.country ? n.country + ' · ' : '') + n.name + (n.delay_ms > 0 ? ' · ' + n.delay_ms + 'ms' : '')) + '</option>').join('') || '<option value="">没有可用节点</option>';
     const mode = chain ? (chain.front_mode || 'fastest') : 'fastest';

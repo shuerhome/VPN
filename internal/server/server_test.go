@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -199,5 +200,35 @@ func TestSelfCheck(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/d/AAAAAAAAAAAAAAAAAAAAAAAA/check", strings.NewReader(`{}`))
 	if resp, _ := http.DefaultClient.Do(req); resp.StatusCode != 404 {
 		t.Fatalf("错误 token 应 404: %d", resp.StatusCode)
+	}
+}
+
+func TestAssetVersioning(t *testing.T) {
+	box, _ := crypt.Load("", t.TempDir())
+	st, _ := store.Open(filepath.Join(t.TempDir(), "p.db"), box)
+	rl := &relay.Relay{Store: st}
+	a := &app.App{Store: st, Notify: &notify.Telegram{Store: st}}
+	fsys := fstest.MapFS{
+		"index.html": {Data: []byte(`<link rel="stylesheet" href="style.css"><script src="app.js"></script><script src="https://cdn.example.com/x.js"></script>`)},
+		"app.js":     {Data: []byte("console.log(1)")},
+		"style.css":  {Data: []byte("body{}")},
+	}
+	srv := httptest.NewServer(New(a, rl, "password123", "", fsys).Handler())
+	defer srv.Close()
+
+	resp, body := get(t, srv.URL+"/", "x")
+	if resp.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("页面不应缓存: %q", resp.Header.Get("Cache-Control"))
+	}
+	m := regexp.MustCompile(`src="app\.js\?v=([0-9a-f]{10})"`).FindStringSubmatch(body)
+	if m == nil || !strings.Contains(body, `href="style.css?v=`) || !strings.Contains(body, `src="https://cdn.example.com/x.js"`) {
+		t.Fatalf("引用没有加上版本号（或误改了外部地址）: %s", body)
+	}
+	resp, js := get(t, srv.URL+"/app.js?v="+m[1], "x")
+	if js != "console.log(1)" || !strings.Contains(resp.Header.Get("Cache-Control"), "immutable") {
+		t.Fatalf("带当前版本号的文件应长期缓存: %q %q", js, resp.Header.Get("Cache-Control"))
+	}
+	if resp, _ = get(t, srv.URL+"/app.js?v=old", "x"); resp.Header.Get("Cache-Control") != "no-cache" {
+		t.Fatalf("旧版本号不应长期缓存: %q", resp.Header.Get("Cache-Control"))
 	}
 }
